@@ -1,0 +1,8 @@
+title: Juan's Notes
+remote_theme: just-the-docs/just-the-docs
+
+# MathJax for LaTeX
+mathjax: true
+
+# Makes links clean
+permalink: pretty
