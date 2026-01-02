@@ -1195,4 +1195,3 @@ for epoch in range(5):
     train_epoch(model, train_loader, optimizer, epoch=epoch, log_every=200)
     eval_epoch(model, test_loader)
 ```
-
