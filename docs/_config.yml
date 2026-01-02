@@ -1,17 +1,15 @@
 title: Juan's Notes
-remote_theme: mmistakes/minimal-mistakes
-
-plugins:
-  - jekyll-remote-theme
-  - jekyll-include-cache
+remote_theme: just-the-docs/just-the-docs
 
 permalink: pretty
+color_scheme: catppuccin
 highlighter: rouge
 
-minimal_mistakes_skin: dark
+# Just-the-Docs math switch
+math: mathjax
 
-markdown: kramdown
 kramdown:
+  # keep $$...$$ / $...$ literally in the HTML so MathJax can render it client-side
   math_engine: nil
   syntax_highlighter_opts:
     block:
