@@ -2,7 +2,7 @@ title: Juan's Notes
 remote_theme: just-the-docs/just-the-docs
 
 permalink: pretty
-color_scheme: catppuccin
+color_scheme: color_scheme: warm_editor
 highlighter: rouge
 
 # Just-the-Docs math switch
