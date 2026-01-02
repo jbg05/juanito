@@ -7,4 +7,11 @@ mathjax: true
 # Makes links clean
 permalink: pretty
 
-color_scheme: dark
+color_scheme: catppuccin
+
+highlighter: rouge
+
+kramdown:
+  syntax_highlighter_opts:
+    block:
+      line_numbers: false
