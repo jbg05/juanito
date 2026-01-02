@@ -1,6 +1,7 @@
 ---
-layout: home
-title: "Juan’s Notes"
+title: Home
+layout: default
+nav_order: 1
 permalink: /
 ---
 
