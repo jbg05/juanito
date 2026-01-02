@@ -108,9 +108,9 @@ def multiply_back1(grad_out, out, x, y):
 ```
 
 
-Now, let's try out our backward functions and do backpropagation on this computational graph!
+Now, let's try out our backward functions and do backpropagation on this computational graph:
 
-![Computational Graph](./assets/images/graph.png)
+![Computational Graph](./assets/images/backpropexample.png)
     style C fill:#dfd
 
 ```python
