@@ -1,17 +1,16 @@
 title: Juan's Notes
 remote_theme: just-the-docs/just-the-docs
 
-# MathJax for LaTeX
-mathjax: true
-
-# Makes links clean
 permalink: pretty
-
 color_scheme: catppuccin
-
 highlighter: rouge
 
+# Just-the-Docs math switch
+math: mathjax
+
 kramdown:
+  # keep $$...$$ / $...$ literally in the HTML so MathJax can render it client-side :contentReference[oaicite:1]{index=1}
+  math_engine: nil
   syntax_highlighter_opts:
     block:
       line_numbers: false
