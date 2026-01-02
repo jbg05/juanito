@@ -9,7 +9,7 @@ highlighter: rouge
 math: mathjax
 
 kramdown:
-  # keep $$...$$ / $...$ literally in the HTML so MathJax can render it client-side
+  # keep $$...$$ / $...$ literally in the HTML so MathJax can render it client-side :contentReference[oaicite:1]{index=1}
   math_engine: nil
   syntax_highlighter_opts:
     block:
