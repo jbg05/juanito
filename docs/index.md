@@ -399,3 +399,244 @@ def multiply_forward(a, b):
 
     return out
 ```
+
+
+With these two examples in mind, it's pretty straightforward to implement the higher-order function `wrap_forward_fn` that takes a NumPy function (roughly `Arr -> Arr`) and returns its `Tensor` equivalent as a `Callable`.
+
+```python
+def wrap_forward_fn(numpy_func, is_differentiable=True):
+    def tensor_func(*args, **kwargs):
+        raw = []
+        need_grad = False
+
+        for x in args:
+            if isinstance(x, Tensor):
+                raw.append(x.array)
+                if x.requires_grad:
+                    need_grad = True
+            else:
+                raw.append(x)
+
+        out_arr = numpy_func(*raw, **kwargs)
+
+        track = bool(grad_tracking_enabled and is_differentiable and need_grad)
+        out = Tensor(out_arr, track)
+
+        if track:
+            parents = {}
+            for i, x in enumerate(args):
+                if isinstance(x, Tensor):
+                    parents[i] = x
+            out.recipe = Recipe(numpy_func, tuple(raw), dict(kwargs), parents)
+
+        return out
+
+    return tensor_func
+
+
+def _sum(x, dim=None, keepdim=False):
+    return np.sum(x, axis=dim, keepdims=keepdim)
+
+
+log = wrap_forward_fn(np.log)
+multiply = wrap_forward_fn(np.multiply)
+eq = wrap_forward_fn(np.equal, is_differentiable=False)
+sum = wrap_forward_fn(_sum)
+```
+
+---
+
+As part of backprop, we need to sort the nodes of our graph in **reverse topological order**.
+
+A **topological sort** is a graph traversal where each node \(v\) is visited only after all its dependencies are visited (for every directed edge from \(u\) to \(v\), \(u\) comes before \(v\) in the ordering).
+
+We need the reverse of this, since we propagate backward and calculate gradients of nodes only after we have the gradients of their downstream dependencies.
+
+```python
+class Node:
+    def __init__(self, *children):
+        self.children = list(children)
+
+
+def get_children(node):
+    return node.children
+
+
+def topological_sort(root, get_children):
+    out = []
+    done = set()
+    active = set()
+
+    def dfs(v):
+        if v in done:
+            return
+        if v in active:
+            raise ValueError("cycle detected")
+        active.add(v)
+        for u in get_children(v):
+            dfs(u)
+        active.remove(v)
+        done.add(v)
+        out.append(v)
+
+    dfs(root)
+    return out
+```
+
+We can prove by induction that a cycle-free finite directed graph contains a topological ordering:
+
+- If \(N = 1\), it's trivially true.
+- If \(N > 1\), pick any node and follow outgoing edges until you reach a node with out-degree \(0\). This node must exist; otherwise you would either follow edges forever (contradicting finiteness) or revisit a node (contradicting acyclicity). Put this node first in your topological ordering, remove it from the graph, and apply topological sort to the remaining subgraph. By induction, that ordering exists. Prepending the removed node gives a topological ordering for all \(N\) vertices.
+
+With its existence in mind, we can now safely take a tensor and return a list of tensors that make up its computational graph, in reverse topological order.
+
+```python
+def sorted_computational_graph(tensor):
+    def parents(t):
+        if t.recipe is None or not t.recipe.parents:
+            return []
+        return list(t.recipe.parents.values())
+
+    return topological_sort(tensor, parents)[::-1]
+```
+
+---
+
+Now we're fully ready to write our backprop function, but I'll clarify one thing first.
+
+Let the final node be a tensor \(g \in \mathbb{R}^{d_1 \times \cdots \times d_k}\) (not necessarily scalar). To define “the” gradient, pick a weight tensor \(v\) with the same shape and define a scalar objective:
+
+$$
+L \;=\; \langle g, v\rangle
+\;=\; \sum_{i_1,\dots,i_k} g_{i_1,\dots,i_k}\, v_{i_1,\dots,i_k}
+\;=\; (g * v).sum().
+$$
+
+Then the seed gradient is:
+
+$$
+\frac{\partial L}{\partial g_{i_1,\dots,i_k}} \;=\; v_{i_1,\dots,i_k}
+\quad\Longrightarrow\quad
+\nabla_g L \;=\; v.
+$$
+
+So, in backprop, the **first** `grad_out` passed into the backward function at the end node \(g\) is exactly \(v\).
+
+Special case (default behavior): take \(v=\mathbf{1}\) (all ones, same shape as \(g\)), giving:
+
+$$
+L = \sum_{i_1,\dots,i_k} g_{i_1,\dots,i_k} = g.sum(),
+\qquad
+\nabla_g L = \mathbf{1}.
+$$
+
+If you pass `end_grad`, you are explicitly choosing \(v := \texttt{end\_grad}\).
+
+---
+
+### Backprop implementation (with one quick explanation)
+
+The key idea in the code below is:
+
+- `grads[t]` stores the accumulated gradient \(\partial L/\partial t\) for each `Tensor` `t`.
+- We process nodes from the end node backward.
+- At each node, we push gradients to its parents using the registered backward functions.
+- When we hit a leaf, we store (and accumulate) into `node.grad`.
+
+```python
+def backprop(end_node, end_grad=None):
+    end_grad_arr = np.ones_like(end_node.array) if end_grad is None else end_grad.array
+    if not isinstance(end_grad_arr, np.ndarray):
+        end_grad_arr = np.array(end_grad_arr)
+
+    grads = {end_node: end_grad_arr}
+
+    for node in sorted_computational_graph(end_node):
+        outgrad = grads.pop(node)
+
+        if node.is_leaf:
+            if node.requires_grad:
+                if node.grad is None:
+                    node.grad = Tensor(outgrad)
+                else:
+                    node.grad.array += outgrad
+            continue
+
+        recipe = node.recipe
+        assert recipe is not None
+
+        for argnum, parent in recipe.parents.items():
+            back_fn = BACK_FUNCS.get_back_func(recipe.func, argnum)
+            in_grad = back_fn(outgrad, node.array, *recipe.args, **recipe.kwargs)
+            grads[parent] = grads[parent] + in_grad if parent in grads else in_grad
+```
+
+Now that backprop is complete, we just need to add a couple backward functions.
+
+```python
+def negative_back(grad_out: Arr, out: Arr, x: Arr) -> Arr:
+    return -grad_out
+
+BACK_FUNCS.add_back_func(np.negative, 0, negative_back)
+```
+
+```python
+def exp_back(grad_out: Arr, out: Arr, x: Arr) -> Arr:
+    return grad_out * out
+
+BACK_FUNCS.add_back_func(np.exp, 0, exp_back)
+```
+
+Reshape is a little different. The operation that takes us from \(\partial L/\partial x_r\) to \(\partial L/\partial x\) is exactly the inverse of the forward reshape operation that gave us \(x_r\) from \(x\), so we want to take `grad_out` and get it back to the shape of `x`.
+
+```python
+def reshape_back(grad_out: Arr, out: Arr, x: Arr, new_shape: tuple) -> Arr:
+    return np.reshape(grad_out, x.shape)
+
+BACK_FUNCS.add_back_func(np.reshape, 0, reshape_back)
+```
+
+```python
+def permute_back(grad_out: Arr, out: Arr, x: Arr, axes: tuple) -> Arr:
+    return np.transpose(grad_out, np.argsort(axes))
+
+BACK_FUNCS.add_back_func(np.transpose, 0, permute_back)
+```
+
+Now, there are cases where the output might be smaller than the input, like when using the sum function.
+
+Let \(x\in\mathbb{R}^{n_1\times\cdots\times n_k}\). Fix axes \(D\subseteq\{1,\dots,k\}\) to sum over, and define:
+
+$$
+y=\operatorname{sum}(x;D),\qquad 
+y_{j}=\sum_{i\in I(j)} x_i,
+$$
+
+where \(j\) indexes the surviving coordinates (axes \(\notin D\)), and \(I(j)\) is the set of full indices \(i=(i_1,\dots,i_k)\) that collapse to the same \(j\) after summing over \(D\).
+
+Take any scalar loss \(L=L(y)\). For any entry \(x_i\) with \(i\mapsto j\),
+
+$$
+\frac{\partial y_{j}}{\partial x_i}=1,\qquad 
+\frac{\partial y_{j'}}{\partial x_i}=0\ \ (j'\neq j).
+$$
+
+Therefore, by the chain rule,
+
+$$
+\frac{\partial L}{\partial x_i}
+=\sum_{j'}\frac{\partial L}{\partial y_{j'}}\frac{\partial y_{j'}}{\partial x_i}
+=\frac{\partial L}{\partial y_j}.
+$$
+
+So every element \(x_i\) that was included in the same sum producing \(y_j\) receives the *same* upstream gradient value \(\big(\partial L/\partial y_j\big)\). In other words: the gradient \(\partial L/\partial y\) must be *replicated* across the axes that were summed out, to match the shape of \(x\). This replication is exactly a broadcast.
+
+Recall that when we looked at broadcasting, the backward operation was summing over the broadcasted dimensions: broadcasting copies values, creating multiple identical computational paths, so gradients add across those copies. Summation is the “reverse”: the forward pass adds many \(x\)-entries into one \(y\)-entry, and the backward pass sends the same \(\partial L/\partial y_j\) back to *each* contributing \(x_i\). Hence, backward(\(\sum\)) = broadcast.
+
+Implementation-wise, you can view `sum_back` as two purely shape-level steps:
+
+- **(A) Reinsert summed axes when `keepdim=False`:** forward removed axes \(D\); backward inserts them back as size-1 dimensions so shapes are aligned.
+- **(B) Broadcast to \(x\)’s full shape:** replicate \(\partial L/\partial y\) along exactly those axes \(D\), yielding an array with shape `x.shape`.
+
+If `dim=None`, then \(y\) is a scalar and \(\partial L/\partial y\) is also scalar; broadcasting a scalar to `x`’s shape is still the same rule.
+
