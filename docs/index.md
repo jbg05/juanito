@@ -8,7 +8,7 @@ nav_order: 1
 
 This site collects my notes + implementations (math included).
 
-# Backpropagation from Scratch
+## Backpropagation from Scratch
 
 ```python
 import re
@@ -69,8 +69,6 @@ $$
 \boxed{\nabla_x L = \sum_{\text{broadcast axes}} \nabla_{x_b} L}
 $$
 
-
-
 ```python
 def unbroadcast(broadcasted, original):
     b = broadcasted
@@ -86,12 +84,11 @@ def unbroadcast(broadcasted, original):
 
     assert b.shape == original.shape
     return b
-
 ```
 
 Indeed, functions can be differentiable wrt more than one input tensor, in which case we need multiple backwards functions, one for each input argument.
 
-For example, we can write the backwards functions for $x*y$ wrt argument 0 and 1 ($x$ and $y$ respectively)
+For example, we can write the backwards functions for $x*y$ wrt argument 0 and 1 ($x$ and $y$ respectively):
 
 ```python
 def multiply_back0(grad_out, out, x, y):
@@ -103,15 +100,11 @@ def multiply_back1(grad_out, out, x, y):
     if not isinstance(x, Arr):
         x = np.array(x)
     return unbroadcast(grad_out * x, y)
-
-
 ```
-
 
 Now, let's try out our backward functions and do backpropagation on this computational graph:
 
 ![Computational Graph](./assets/images/backpropexample.png)
-    style C fill:#dfd
 
 ```python
 def forward_and_back(a, b, c):
@@ -132,4 +125,3 @@ def forward_and_back(a, b, c):
 
     return ga, gb, gc
 ```
-
