@@ -1,3 +1,10 @@
+---
+title: Home
+layout: default
+nav_order: 1
+permalink: /
+---
+
 # Juan’s ML Notes
 
 This site collects my notes + implementations (math included).
@@ -98,7 +105,7 @@ def multiply_back1(grad_out, out, x, y):
 
 Now, let's try out our backward functions and do backpropagation on this computational graph:
 
-![Computational Graph](./assets/images/backpropexample.png)
+![Computational Graph]({{ "/assets/images/backpropexample.png" | relative_url }})
 
 ```python
 def forward_and_back(a, b, c):
