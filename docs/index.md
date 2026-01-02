@@ -399,8 +399,6 @@ def multiply_forward(a, b):
 
     return out
 ```
-
-
 With these two examples in mind, it's pretty straightforward to implement the higher-order function `wrap_forward_fn` that takes a NumPy function (roughly `Arr -> Arr`) and returns its `Tensor` equivalent as a `Callable`.
 
 ```python
@@ -530,7 +528,7 @@ L = \sum_{i_1,\dots,i_k} g_{i_1,\dots,i_k} = g.sum(),
 \nabla_g L = \mathbf{1}.
 $$
 
-If you pass `end_grad`, you are explicitly choosing \(v := \texttt{end\_grad}\).
+If you pass `end_grad`, you are explicitly choosing \(v := \mathrm{end\_grad}\) (i.e., the array you passed in).
 
 ---
 
@@ -538,7 +536,7 @@ If you pass `end_grad`, you are explicitly choosing \(v := \texttt{end\_grad}\).
 
 The key idea in the code below is:
 
-- `grads[t]` stores the accumulated gradient \(\partial L/\partial t\) for each `Tensor` `t`.
+- `grads[t]` stores the accumulated gradient \(\partial L/\partial t\) for each `Tensor` \(t\).
 - We process nodes from the end node backward.
 - At each node, we push gradients to its parents using the registered backward functions.
 - When we hit a leaf, we store (and accumulate) into `node.grad`.
@@ -603,12 +601,16 @@ def permute_back(grad_out: Arr, out: Arr, x: Arr, axes: tuple) -> Arr:
 BACK_FUNCS.add_back_func(np.transpose, 0, permute_back)
 ```
 
+---
+
+## Backward for `sum`
+
 Now, there are cases where the output might be smaller than the input, like when using the sum function.
 
-Let \(x\in\mathbb{R}^{n_1\times\cdots\times n_k}\). Fix axes \(D\subseteq\{1,\dots,k\}\) to sum over, and define:
+Let \(x \in \mathbb{R}^{n_1 \times \cdots \times n_k}\). Fix axes \(D \subseteq \{1,\dots,k\}\) to sum over, and define:
 
 $$
-y=\operatorname{sum}(x;D),\qquad 
+y=\mathrm{sum}(x;D),\qquad 
 y_{j}=\sum_{i\in I(j)} x_i,
 $$
 
@@ -639,4 +641,3 @@ Implementation-wise, you can view `sum_back` as two purely shape-level steps:
 - **(B) Broadcast to \(x\)’s full shape:** replicate \(\partial L/\partial y\) along exactly those axes \(D\), yielding an array with shape `x.shape`.
 
 If `dim=None`, then \(y\) is a scalar and \(\partial L/\partial y\) is also scalar; broadcasting a scalar to `x`’s shape is still the same rule.
-
