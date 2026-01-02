@@ -1,0 +1,39 @@
+/* Global background + text */
+body {
+  background: #0f111a;
+  color: #e6e1cf;
+}
+
+/* Links */
+a { color: #c8a96a; }
+a:hover { opacity: 0.9; }
+
+/* Inline code */
+p code, li code, td code {
+  background: #171a26;
+  color: #f1e6c8;
+  border: 1px solid rgba(200,169,106,0.25);
+  padding: 0.15em 0.35em;
+  border-radius: 6px;
+}
+
+/* Code blocks */
+pre, code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+pre {
+  background: #121522 !important;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+}
+
+/* Blockquotes / callouts feel readable */
+blockquote {
+  border-left: 4px solid rgba(200,169,106,0.55);
+  background: rgba(200,169,106,0.06);
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+}
+
+/* Headings slightly warmer */
+h1, h2, h3 { color: #f0ead6; }
