@@ -1,0 +1,43 @@
+/* Warm editor vibes + fix inline code contrast (Just-the-Docs) */
+
+body {
+  font-feature-settings: "ss01" 1, "ss02" 1;
+}
+
+/* Headings slightly softer */
+h1, h2, h3, h4 {
+  letter-spacing: -0.01em;
+}
+
+/* Inline code: readable pill, not washed out */
+p code, li code, td code, th code {
+  background: #171a26;
+  color: #f1e6c8;
+  border: 1px solid rgba(200, 169, 106, 0.28);
+  padding: 0.12em 0.38em;
+  border-radius: 8px;
+}
+
+/* Code blocks: “editor panel” */
+div.highlighter-rouge, pre.highlight, figure.highlight {
+  background: #121522;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+}
+
+pre, code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+/* Blockquotes: cozy callout */
+blockquote {
+  border-left: 4px solid rgba(200, 169, 106, 0.55);
+  background: rgba(200, 169, 106, 0.06);
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+}
+
+/* Optional: slightly nicer links */
+a:hover {
+  opacity: 0.92;
+}
