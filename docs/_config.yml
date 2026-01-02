@@ -6,3 +6,5 @@ mathjax: true
 
 # Makes links clean
 permalink: pretty
+
+color_scheme: dark
