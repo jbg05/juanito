@@ -22,88 +22,84 @@ Arr = np.ndarray
 grad_tracking_enabled = True
 ```
 
-We’ll implement backpropagation from scratch.  
-For an intuitive intro, see [Colah’s post](https://colah.github.io/posts/2015-08-Backprop/).
+We will implement backpropagation from scratch.  
+For a friendly intro, read [this](https://colah.github.io/posts/2015-08-Backprop/).
 
-For example, the backward function for `log` is:
+So, for example, the backward function of `log` would be:
 
 ```python
 def log_back(grad_out, out, x):
     return grad_out / x
 ```
 
-### Broadcasting in the backward pass
+## Broadcasting: how gradients “unbroadcast”
 
-In general, we work with tensors. Suppose
+In general, we are working with tensors, where we might have something like `out = x + y` with:
 
-- `out = x + y`
 - `x.shape = (2,)`
 - `y.shape = (4, 2)`
 
-Under the hood, NumPy **[broadcasts](https://docs.pytorch.org/docs/stable/notes/broadcasting.html)** `x` to a broadcasted version \(x_b\) with the shape of \(y\), then computes:
+Then what’s happening under the hood is NumPy **[broadcasts](https://docs.pytorch.org/docs/stable/notes/broadcasting.html)** `x` to some \(x_b\) which has the shape of \(y\), and then defines:
 
-\[
+$$
 \text{out} = x_b + y.
-\]
+$$
 
-How do we go from \(\frac{\partial L}{\partial x_b}\) to \(\frac{\partial L}{\partial x}\)?
+Now, how do we go from \(\frac{\partial L}{\partial x_b}\) to finding \(\frac{\partial L}{\partial x}\)?
 
-Let \(x \in \mathbb{R}^d\), and let \(x_b\) be its broadcasted version with:
+Let \(x \in \mathbb{R}^d\) and let \(x_b\) be its broadcasted version with:
 
-\[
-x_b[i_1,\dots,i_k,j] = x[j].
-\]
+$$
+x_b[i_1, \dots, i_k, j] = x[j].
+$$
 
-Let \(L = L(x_b)\). Then for each \(j\),
+Let \(L = L(x_b)\). Then for each \(j\):
 
-\[
+$$
 \frac{\partial L}{\partial x[j]}
-= \sum_{i_1,\dots,i_k}
-\frac{\partial L}{\partial x_b[i_1,\dots,i_k,j]}
+= \sum_{i_1, \dots, i_k}
+\frac{\partial L}{\partial x_b[i_1, \dots, i_k, j]}
 \cdot
-\frac{\partial x_b[i_1,\dots,i_k,j]}{\partial x[j]}.
-\]
+\frac{\partial x_b[i_1, \dots, i_k, j]}{\partial x[j]}.
+$$
 
-Since
+Since the derivative of the broadcasted element with respect to the original is:
 
-\[
-\frac{\partial x_b[i_1,\dots,i_k,j]}{\partial x[j]} = 1,
-\]
+$$
+\frac{\partial x_b[i_1, \dots, i_k, j]}{\partial x[j]} = 1,
+$$
 
-we obtain the reduction rule:
+we obtain the final reduction formula:
 
-\[
+$$
 \boxed{
 \frac{\partial L}{\partial x[j]}
 =
-\sum_{i_1,\dots,i_k}
-\frac{\partial L}{\partial x_b[i_1,\dots,i_k,j]}
-}
-\]
+\sum_{i_1, \dots, i_k}
+\frac{\partial L}{\partial x_b[i_1, \dots, i_k, j]}
+}.
+$$
 
-Equivalently:
+Equivalently, in gradient notation:
 
-\[
+$$
 \boxed{
 \nabla_x L
 =
-\sum_{\text{broadcast axes}}
-\nabla_{x_b} L
-}
-\]
-
-Here’s a practical implementation:
+\sum_{\text{broadcast axes}} \nabla_{x_b} L
+}.
+$$
 
 ```python
 def unbroadcast(broadcasted, original):
     b = broadcasted
 
-    # If original had fewer dims, sum out the leading broadcast dims
+    # If original had fewer dims, sum out the leading broadcast dims.
     ndims = b.ndim - original.ndim
     if ndims > 0:
         b = b.sum(axis=tuple(range(ndims)))
 
-    # For any axis where original had size 1 but b has size > 1, sum over that axis
+    # For axes where original has size 1 but b has size > 1, sum over those axes.
     if original.ndim > 0:
         dims = tuple(
             i for i, (o, bi) in enumerate(zip(original.shape, b.shape))
@@ -116,9 +112,9 @@ def unbroadcast(broadcasted, original):
     return b
 ```
 
-A function can be differentiable w.r.t. more than one input tensor, so we often need a separate backward function per argument.
+Indeed, functions can be differentiable w.r.t. more than one input tensor, in which case we need multiple backward functions, one for each input argument.
 
-For example, for \(x * y\), the backward functions w.r.t. argument 0 and 1 are:
+For example, we can write the backward functions for \(x*y\) w.r.t. argument 0 and 1 (i.e., \(x\) and \(y\) respectively):
 
 ```python
 def multiply_back0(grad_out, out, x, y):
@@ -132,9 +128,7 @@ def multiply_back1(grad_out, out, x, y):
     return unbroadcast(grad_out * x, y)
 ```
 
-### Manual backprop on a small graph
-
-Let’s do backprop on this computational graph:
+Now, let's try out our backward functions and do backpropagation on this computational graph:
 
 ![Computational Graph]({{ "/assets/images/backpropexample.png" | relative_url }})
 
@@ -158,15 +152,15 @@ def forward_and_back(a, b, c):
     return ga, gb, gc
 ```
 
-Now, rather than manually figuring out which backward functions to call (and in what order), we’ll automate the process.
+Now, rather than manually figuring out which backward functions to call (and in what order), we’ll write code to automate that for us.
 
-## Tracking the computation graph
+---
 
-We’ll store forward-pass metadata in a `Recipe` object, so we can compute gradients during backprop.
+## Recipes: tracking the forward pass
+
+The class `Recipe` tracks the forward function and its inputs, so we can compute gradients during backprop.
 
 ```python
-from dataclasses import dataclass
-
 @dataclass(frozen=True, slots=True)
 class Recipe:
     func: object
@@ -175,7 +169,7 @@ class Recipe:
     parents: dict
 ```
 
-Next we need a way to look up the right backward function for a forward function + argument position.
+While the `Recipe` class tracks forward ops in our computational graph, we still need to find the backward functions corresponding to a given forward function automatically.
 
 ```python
 class BackwardFuncLookup:
@@ -192,7 +186,7 @@ class BackwardFuncLookup:
         return self.back_funcs[key]
 ```
 
-Register the functions we already made:
+Let's register the functions we've already made for our example:
 
 ```python
 BACK_FUNCS = BackwardFuncLookup()
@@ -202,17 +196,19 @@ BACK_FUNCS.add_back_func(np.multiply, 0, multiply_back0)
 BACK_FUNCS.add_back_func(np.multiply, 1, multiply_back1)
 ```
 
-## A Tensor wrapper
+---
 
-We’ll wrap NumPy arrays in a `Tensor` class (similar to `torch.Tensor`).
+## Tensor: a small wrapper object
 
-Two key ideas:
+Now we’re going to wrap each array with a wrapper object needed for backpropagation. We’ll call it `Tensor`, since it’ll behave a lot like a `torch.Tensor`.
 
-1. **Leaf tensors** are “ends” of the backprop path: either they have no parents (no recipe / no upstream), or they don’t require grad. We store gradients only for leaf nodes that `requires_grad=True`.
+Two important notes:
 
-2. `requires_grad` for outputs should be true iff all of these hold:
+1. A **leaf tensor** represents the end of a backprop path (either it has no parents, or it doesn’t require gradients). We store gradients of leaf nodes if `requires_grad` is true (unlike intermediate nodes where storing gradients is usually a waste of memory).
+
+2. When creating tensors we can set `requires_grad` explicitly, but otherwise it’s true iff:
    - global grad tracking is enabled,
-   - at least one input requires grad,
+   - at least one input requires grad (otherwise there’s no upstream),
    - the function is differentiable.
 
 ```python
@@ -364,11 +360,11 @@ def tensor(array, requires_grad=False):
     return Tensor(array, requires_grad=requires_grad)
 ```
 
+---
+
 ## Wrapping NumPy functions
 
-We want the “Tensor version” of NumPy functions like `np.log`, `np.multiply`, etc.
-
-Here’s one explicit example (log):
+Now, we can implement the functionality of NumPy functions but have them work with our `Tensor` objects instead of arrays. For example, for the log function:
 
 ```python
 def log_forward(x):
@@ -382,7 +378,7 @@ def log_forward(x):
     return out
 ```
 
-Multiply is similar, but one input might be a scalar:
+The multiply function is similar, but we need to be careful because one input may be a Python scalar:
 
 ```python
 def multiply_forward(a, b):
@@ -417,7 +413,7 @@ def multiply_forward(a, b):
     return out
 ```
 
-Rather than writing this boilerplate for every function, we can write a higher-order wrapper.
+With those two examples, it’s straightforward to implement a higher-order wrapper `wrap_forward_fn` that takes a NumPy function and returns its Tensor equivalent.
 
 ```python
 def wrap_forward_fn(numpy_func, is_differentiable=True):
@@ -460,13 +456,13 @@ eq = wrap_forward_fn(np.equal, is_differentiable=False)
 sum = wrap_forward_fn(_sum)
 ```
 
-## Reverse topological order of the graph
+---
 
-Backprop requires processing nodes from outputs back to inputs. One clean way to do this is to traverse the computation graph in **reverse topological order**.
+## Reverse topological sort for backprop
 
-A *topological ordering* of a directed acyclic graph (DAG) is an ordering where every node appears **after** all of its dependencies.
+As part of backprop, we need to sort nodes of our graph in **reverse topological order**.
 
-Below is a DFS-based topological sort which appends a node only after visiting all of its children:
+A topological sort is a graph traversal where each node \(v\) is visited only after all its dependencies are visited (for every directed edge from \(u\) to \(v\), \(u\) comes before \(v\) in the ordering). We need the reverse of this, since we propagate backward and compute gradients only after we have the gradients of downstream nodes.
 
 ```python
 class Node:
@@ -499,7 +495,7 @@ def topological_sort(root, get_children):
     return out
 ```
 
-For our tensors, we’ll treat a tensor’s “children” as its **parents** in the computation graph (the inputs to the operation that produced it). Then a topological ordering will naturally visit inputs before outputs.
+With that in mind, we can take a tensor and return a list of tensors that make up its computational graph, in reverse topological order.
 
 ```python
 def sorted_computational_graph(tensor):
@@ -511,32 +507,38 @@ def sorted_computational_graph(tensor):
     return topological_sort(tensor, parents)[::-1]
 ```
 
-We return `[::-1]` because the DFS ordering places the end node last; for backprop we want to start from the end node and go backwards.
+---
 
-## Seeding backprop when the output isn’t scalar
+## Seed gradients when the output isn’t scalar
 
-Let the final node be a tensor \(g \in \mathbb{R}^{d_1 \times \cdots \times d_k}\) (not necessarily scalar). To define a scalar objective, pick a weight tensor \(v\) with the same shape and define:
+Let the final node be a tensor \(g \in \mathbb{R}^{d_1 \times \cdots \times d_k}\) (not necessarily scalar). To define “the” gradient, pick a weight tensor \(v\) with the same shape and define a scalar objective:
 
 \[
 L \;=\; \langle g, v\rangle
-\;=\;
-\sum_{i_1,\dots,i_k} g_{i_1,\dots,i_k} v_{i_1,\dots,i_k}
+\;=\; \sum_{i_1,\dots,i_k} g_{i_1,\dots,i_k}\, v_{i_1,\dots,i_k}
 \;=\; (g * v).sum().
 \]
 
 Then the seed gradient is:
 
 \[
-\frac{\partial L}{\partial g_{i_1,\dots,i_k}} = v_{i_1,\dots,i_k}
+\frac{\partial L}{\partial g_{i_1,\dots,i_k}} \;=\; v_{i_1,\dots,i_k}
 \quad\Longrightarrow\quad
-\nabla_g L = v.
+\nabla_g L \;=\; v.
 \]
 
 So, in backprop, the **first** `grad_out` passed into the backward function at the end node \(g\) is exactly \(v\).
 
-Default behavior: take \(v=\mathbf{1}\) (all ones), which corresponds to \(L = g.sum()\).
+Special case (default behavior): take \(v=\mathbf{1}\) (all ones, same shape as \(g\)), giving:
+
+\[
+L = \sum_{i_1,\dots,i_k} g_{i_1,\dots,i_k} = g.sum(),
+\qquad \nabla_g L = \mathbf{1}.
+\]
 
 If you pass `end_grad`, you are explicitly choosing \(v := \texttt{end\_grad}\).
+
+---
 
 ## Backprop implementation
 
@@ -570,9 +572,9 @@ def backprop(end_node, end_grad=None):
     return None
 ```
 
-## Adding more backward functions
+Now that backprop is complete, we just need to add a couple more backward functions.
 
-Negative:
+### Negative
 
 ```python
 def negative_back(grad_out: Arr, out: Arr, x: Arr) -> Arr:
@@ -581,7 +583,7 @@ def negative_back(grad_out: Arr, out: Arr, x: Arr) -> Arr:
 BACK_FUNCS.add_back_func(np.negative, 0, negative_back)
 ```
 
-Exponential:
+### Exponential
 
 ```python
 def exp_back(grad_out: Arr, out: Arr, x: Arr) -> Arr:
@@ -590,7 +592,9 @@ def exp_back(grad_out: Arr, out: Arr, x: Arr) -> Arr:
 BACK_FUNCS.add_back_func(np.exp, 0, exp_back)
 ```
 
-Reshape: backward just reshapes the gradient back to the original shape.
+### Reshape
+
+Reshape is a little different. The operation that takes us from \(\partial L/\partial x_r\) to \(\partial L/\partial x\) is exactly the inverse of the forward reshape operation that gave us \(x_r\) from \(x\). So we take `grad_out` and reshape it back to `x.shape`.
 
 ```python
 def reshape_back(grad_out: Arr, out: Arr, x: Arr, new_shape: tuple) -> Arr:
@@ -599,7 +603,7 @@ def reshape_back(grad_out: Arr, out: Arr, x: Arr, new_shape: tuple) -> Arr:
 BACK_FUNCS.add_back_func(np.reshape, 0, reshape_back)
 ```
 
-Permute / transpose: backward permutes by the inverse permutation.
+### Permute / transpose
 
 ```python
 def permute_back(grad_out: Arr, out: Arr, x: Arr, axes: tuple) -> Arr:
@@ -608,31 +612,64 @@ def permute_back(grad_out: Arr, out: Arr, x: Arr, axes: tuple) -> Arr:
 BACK_FUNCS.add_back_func(np.transpose, 0, permute_back)
 ```
 
+---
+
 ## Backward for `sum`
 
-Sometimes the output is smaller than the input, e.g. `sum`.
+There are cases where the output might be smaller than the input, like when using `sum`.
 
-Let \(x\in\mathbb{R}^{n_1\times\cdots\times n_k}\). Fix axes \(D\subseteq\{1,\dots,k\}\) to sum over, and define \(y=\operatorname{sum}(x;D)\). Each \(y_j\) is a sum of many \(x_i\)’s that “collapse” to the same surviving index \(j\).
+Let \(x\in\mathbb{R}^{n_1\times\cdots\times n_k}\). Fix axes \(D\subseteq\{1,\dots,k\}\) to sum over, and define \(y=\operatorname{sum}(x;D)\). Each entry of \(y\) is the sum of a bunch of entries of \(x\).
 
-Take a scalar loss \(L=L(y)\). For any entry \(x_i\) contributing to \(y_j\),
+Take any scalar loss \(L=L(y)\). For any entry \(x_i\) that contributes to some output entry \(y_j\), we have:
 
 \[
-\frac{\partial y_j}{\partial x_i} = 1.
+\frac{\partial y_j}{\partial x_i} = 1,
+\qquad
+\frac{\partial y_{j'}}{\partial x_i} = 0 \;\;(j'\neq j).
 \]
 
-So by the chain rule,
+Therefore, by the chain rule,
 
 \[
 \frac{\partial L}{\partial x_i}
 =
+\sum_{j'}\frac{\partial L}{\partial y_{j'}}\frac{\partial y_{j'}}{\partial x_i}
+=
 \frac{\partial L}{\partial y_j}.
 \]
 
-In words: **every element that got summed into the same output entry receives the same upstream gradient value.** This is exactly “broadcasting the output gradient back to the input shape”.
+So every element of \(x\) that got summed into the same output entry receives the *same* upstream gradient value. In other words: backward(`sum`) = **broadcast**.
 
-Implementation-wise, `sum_back` is just:
+Implementation-wise, `sum_back` is two shape-only steps:
 
-1. If `keepdim=False`, re-insert the summed axes as size-1 dimensions so broadcasting works.
-2. Broadcast to `x.shape`.
+- If `keepdim=False`, reinsert the summed axes as size-1 dimensions so broadcasting works.
+- Broadcast the gradient to match `x.shape`.
 
-(If `dim=None`, then `y` is scalar and this still broadcasts correctly.)
+```python
+def sum_back(grad_out: Arr, out: Arr, x: Arr, dim=None, keepdim=False):
+    # dim=None means sum over all axes -> out is scalar
+    if dim is None:
+        return np.ones_like(x) * grad_out
+
+    # Normalize dim to a tuple of axes
+    if isinstance(dim, int):
+        dims = (dim,)
+    else:
+        dims = tuple(dim)
+
+    # Handle negative axes
+    dims = tuple(d if d >= 0 else d + x.ndim for d in dims)
+
+    g = grad_out
+
+    # If forward removed dims, reinsert them as size-1 so we can broadcast.
+    if not keepdim:
+        for d in sorted(dims):
+            g = np.expand_dims(g, axis=d)
+
+    # Now broadcast to x.shape
+    return np.ones_like(x) * g
+
+
+BACK_FUNCS.add_back_func(_sum, 0, sum_back)
+```
