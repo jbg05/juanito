@@ -641,3 +641,227 @@ Implementation-wise, you can view `sum_back` as two purely shape-level steps:
 - **(B) Broadcast to \(x\)’s full shape:** replicate \(\partial L/\partial y\) along exactly those axes \(D\), yielding an array with shape `x.shape`.
 
 If `dim=None`, then \(y\) is a scalar and \(\partial L/\partial y\) is also scalar; broadcasting a scalar to `x`’s shape is still the same rule.
+
+
+
+```python
+def sum_back(grad_out: Arr, out: Arr, x: Arr, dim=None, keepdim=False) -> Arr:
+    # If keepdim=False, NumPy removed the summed axis/axes.
+    # Put them back as size-1 dims so broadcasting works.
+    if (not keepdim) and (dim is not None):
+        grad_out = np.expand_dims(grad_out, dim)
+
+    # Every entry of x that contributed to the same summed output
+    # receives the same upstream gradient value, i.e. broadcast back.
+    return np.broadcast_to(grad_out, x.shape)
+
+BACK_FUNCS.add_back_func(_sum, 0, sum_back)
+```
+
+Now: elementwise adding, subtracting, and dividing.
+
+Notice that in general, for \( \text{out} = f(x,y) \) and scalar loss \( L = L(\text{out}) \), with
+\( g := \frac{\partial L}{\partial \text{out}} \), the chain rule gives:
+
+$$
+\frac{\partial L}{\partial x}
+=
+\mathrm{unbroadcast}\!\left(g \odot \frac{\partial f}{\partial x}(x,y),\, x\right),
+\qquad
+\frac{\partial L}{\partial y}
+=
+\mathrm{unbroadcast}\!\left(g \odot \frac{\partial f}{\partial y}(x,y),\, y\right).
+$$
+
+For example, in elementwise division \( \text{out} = \frac{x}{y} \):
+
+$$
+\frac{\partial L}{\partial x}
+=
+\mathrm{unbroadcast}\!\left(g \odot \frac{1}{y},\, x\right),
+\qquad
+\frac{\partial L}{\partial y}
+=
+\mathrm{unbroadcast}\!\left(g \odot \left(-\frac{x}{y^2}\right),\, y\right),
+\quad
+g:=\frac{\partial L}{\partial \text{out}}.
+$$
+
+```python
+BACK_FUNCS.add_back_func(np.add, 0, lambda grad_out, out, x, y: unbroadcast(grad_out, x))
+BACK_FUNCS.add_back_func(np.add, 1, lambda grad_out, out, x, y: unbroadcast(grad_out, y))
+
+BACK_FUNCS.add_back_func(np.subtract, 0, lambda grad_out, out, x, y: unbroadcast(grad_out, x))
+BACK_FUNCS.add_back_func(np.subtract, 1, lambda grad_out, out, x, y: unbroadcast(-grad_out, y))
+
+BACK_FUNCS.add_back_func(
+    np.true_divide,
+    0,
+    lambda grad_out, out, x, y: unbroadcast(grad_out / y, x),
+)
+BACK_FUNCS.add_back_func(
+    np.true_divide,
+    1,
+    lambda grad_out, out, x, y: unbroadcast(-grad_out * x / (y * y), y),
+)
+```
+
+Now, the `maximum` function is pretty interesting.
+
+For \( \max(x,y) \), the derivative w.r.t. \(x\) is \(1\) when \(x>y\) and \(0\) when \(x<y\). The only tricky case is \(x=y\).
+
+At a tie, `max` is **not differentiable** in the strict sense (there isn’t a unique slope). But it *is* subdifferentiable: any “split” of the upstream gradient between the two arguments that sums to \(1\) is a valid choice.
+
+Why should the splits sum to \(1\)? Intuitively, when \(x=y\), the function \(\max(x,y)\) behaves like the identity along the line \(x=y\): if you increase both inputs by the same small amount \(t\), the output increases by \(t\). So the total sensitivity to moving along \((1,1)\) should be \(1\). That corresponds to choosing partials \(\alpha\) and \(1-\alpha\) with \(\alpha\in[0,1]\). A common convention is \(\alpha=\tfrac12\), i.e. split evenly.
+
+With `maximum`, `relu` follows.
+
+```python
+def maximum_back0(grad_out: Arr, out: Arr, x: Arr, y: Arr):
+    mask = (x > y) + 0.5 * (x == y)
+    return unbroadcast(grad_out * mask, x)
+
+def maximum_back1(grad_out: Arr, out: Arr, x: Arr, y: Arr):
+    mask = (x < y) + 0.5 * (x == y)
+    return unbroadcast(grad_out * mask, y)
+
+BACK_FUNCS.add_back_func(np.maximum, 0, maximum_back0)
+BACK_FUNCS.add_back_func(np.maximum, 1, maximum_back1)
+
+
+def relu(x: Tensor) -> Tensor:
+    return maximum(x, 0.0)
+```
+
+Finally, we will take a look at 2D matrix multiplication and its backward methods (our in-house version of `torch.matmul`).
+
+Let \(X\in\mathbb{R}^{n\times m}\), \(Y\in\mathbb{R}^{m\times k}\), and
+\(M = XY \in \mathbb{R}^{n\times k}\), with \(L = L(M)\).
+Define the upstream gradient
+
+$$
+G := \frac{\partial L}{\partial M}\in\mathbb{R}^{n\times k}
+\quad\text{(this is `grad_out`).}
+$$
+
+Elementwise, for \(p\in[n]\) and \(q\in[k]\),
+
+$$
+M_{pq}=\sum_{r=1}^m X_{pr}Y_{rq}.
+$$
+
+---
+
+## Gradient w.r.t. \(X\)
+
+Fix \((i,j)\). By the chain rule:
+
+$$
+\frac{\partial L}{\partial X_{ij}}
+=\sum_{p=1}^n\sum_{q=1}^k
+\frac{\partial L}{\partial M_{pq}}
+\frac{\partial M_{pq}}{\partial X_{ij}}
+=\sum_{p,q} G_{pq}\frac{\partial}{\partial X_{ij}}
+\Big(\sum_{r}X_{pr}Y_{rq}\Big).
+$$
+
+Use \(\dfrac{\partial X_{pr}}{\partial X_{ij}}=\mathbf{1}\{p=i,r=j\}\):
+
+$$
+\frac{\partial M_{pq}}{\partial X_{ij}} = Y_{jq}\,\mathbf{1}\{p=i\}.
+$$
+
+So
+
+$$
+\frac{\partial L}{\partial X_{ij}}=\sum_{q=1}^k G_{iq}Y_{jq} = (G Y^\top)_{ij}.
+$$
+
+Hence
+
+$$
+\boxed{\frac{\partial L}{\partial X}=G Y^\top}
+\qquad\Longleftrightarrow\qquad
+\boxed{\texttt{x.grad} = \texttt{grad\_out @ y.T}}.
+$$
+
+---
+
+## Gradient w.r.t. \(Y\)
+
+Fix \((j,q)\). By the chain rule:
+
+$$
+\frac{\partial L}{\partial Y_{jq}}
+=\sum_{p=1}^n\sum_{t=1}^k
+\frac{\partial L}{\partial M_{pt}}
+\frac{\partial M_{pt}}{\partial Y_{jq}}
+=\sum_{p,t} G_{pt}\frac{\partial}{\partial Y_{jq}}
+\Big(\sum_{r}X_{pr}Y_{rt}\Big).
+$$
+
+Use \(\dfrac{\partial Y_{rt}}{\partial Y_{jq}}=\mathbf{1}\{r=j,t=q\}\):
+
+$$
+\frac{\partial M_{pt}}{\partial Y_{jq}}=X_{pj}\,\mathbf{1}\{t=q\}.
+$$
+
+So
+
+$$
+\frac{\partial L}{\partial Y_{jq}}=\sum_{p=1}^n G_{pq}X_{pj} = (X^\top G)_{jq}.
+$$
+
+Hence
+
+$$
+\boxed{\frac{\partial L}{\partial Y}=X^\top G}
+\qquad\Longleftrightarrow\qquad
+\boxed{\texttt{y.grad} = \texttt{x.T @ grad\_out}}.
+$$
+
+```python
+def _matmul2d(x: Arr, y: Arr) -> Arr:
+    return x @ y
+
+def matmul2d_back0(grad_out: Arr, out: Arr, x: Arr, y: Arr) -> Arr:
+    return grad_out @ y.T
+
+def matmul2d_back1(grad_out: Arr, out: Arr, x: Arr, y: Arr) -> Arr:
+    return x.T @ grad_out
+
+matmul = wrap_forward_fn(_matmul2d)
+BACK_FUNCS.add_back_func(_matmul2d, 0, matmul2d_back0)
+BACK_FUNCS.add_back_func(_matmul2d, 1, matmul2d_back1)
+```
+
+For functions like `argmax` or `eq` there isn't a sensible way to define gradients since they aren't differentiable. But we still need to unbox the arguments and box the result, so we still use `wrap_forward_fn` and set `is_differentiable=False`.
+
+```python
+eq = wrap_forward_fn(np.equal, is_differentiable=False)
+
+def _argmax(x: Arr, dim=None, keepdim=False):
+    result = np.argmax(x, axis=dim)
+    if keepdim:
+        # If dim is None, argmax returns a scalar; expanding dims is a no-op.
+        if dim is None:
+            return np.expand_dims(result, axis=())
+        return np.expand_dims(result, axis=dim)
+    return result
+
+argmax = wrap_forward_fn(_argmax, is_differentiable=False)
+```
+
+```python
+log = wrap_forward_fn(np.log)
+multiply = wrap_forward_fn(np.multiply)
+add = wrap_forward_fn(np.add)
+subtract = wrap_forward_fn(np.subtract)
+true_divide = wrap_forward_fn(np.true_divide)
+sum = wrap_forward_fn(_sum)
+negative = wrap_forward_fn(np.negative)
+exp = wrap_forward_fn(np.exp)
+reshape = wrap_forward_fn(np.reshape)
+permute = wrap_forward_fn(np.transpose)
+maximum = wrap_forward_fn(np.maximum)
+```
