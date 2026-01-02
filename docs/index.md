@@ -865,3 +865,334 @@ reshape = wrap_forward_fn(np.reshape)
 permute = wrap_forward_fn(np.transpose)
 maximum = wrap_forward_fn(np.maximum)
 ```
+
+
+Now, we've seen enough backward passes to abstract further and write our own versions of `nn.Parameter` and `nn.Module`.
+
+`Parameter` is just a `Tensor` with `requires_grad=True` by default.
+
+```python
+class Parameter(Tensor):
+    def __init__(self, tensor: Tensor, requires_grad=True):
+        super().__init__(tensor.array, requires_grad=requires_grad)
+
+    def __repr__(self):
+        return f"Parameter containing:\n{super().__repr__()}"
+```
+
+Below is our `nn.Module`. See the following if you're curious:
+
+- [PyTorch `torch.nn.Module` documentation](https://pytorch.org/docs/stable/generated/torch.nn.Module.html)
+- [Python Data Model (special method names)](https://docs.python.org/3/reference/datamodel.html)
+
+```python
+class Module:
+    _modules: dict[str, "Module"]
+    _parameters: dict[str, Parameter]
+
+    def __init__(self):
+        self._modules = {}
+        self._parameters = {}
+
+    def modules(self) -> Iterator["Module"]:
+        yield from self._modules.values()
+
+    def parameters(self, recurse: bool = True) -> Iterator[Parameter]:
+        yield from self._parameters.values()
+        if recurse:
+            for mod in self.modules():
+                yield from mod.parameters(recurse=True)
+
+    def __setattr__(self, key: str, val: Any) -> None:
+        if isinstance(val, Parameter):
+            self._parameters[key] = val
+        elif isinstance(val, Module):
+            self._modules[key] = val
+        super().__setattr__(key, val)
+
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+
+    def forward(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def __repr__(self):
+        _indent = lambda s_, nSpaces: re.sub("\n", "\n" + (" " * nSpaces), s_)
+        lines = [f"({k}): {_indent(repr(m), 2)}" for k, m in self._modules.items()]
+        return "".join(
+            [
+                self.__class__.__name__ + "(",
+                "\n  " + "\n  ".join(lines) + "\n" if lines else "",
+                ")",
+            ]
+        )
+```
+
+### Why do we do the `sf = 1/sqrt(d)` scaling?
+
+This is a super standard “keep activations the same scale” argument.
+
+Let $d=\text{in\_features}$ and $y=Wx$ with $W_{ji}$ i.i.d., $\mathbb{E}[W_{ji}]=0$, and $x_i$ roughly i.i.d. with $\mathbb{E}[x_i]=0$ and $\mathrm{Var}(x_i)\approx 1$. Then
+
+$$
+y_j=\sum_{i=1}^d W_{ji}x_i,
+\qquad
+\mathrm{Var}(y_j)\approx \sum_{i=1}^d \mathrm{Var}(W_{ji}x_i)
+= d\,\mathrm{Var}(W_{ji}).
+$$
+
+To keep activations the same scale layer-to-layer (avoid exploding / vanishing), we want $\mathrm{Var}(y_j)\approx 1$, so set
+
+$$
+d\,\mathrm{Var}(W_{ji})\approx 1
+\quad\Rightarrow\quad
+\mathrm{Var}(W_{ji})\approx \frac{1}{d}
+\quad\Rightarrow\quad
+\mathrm{std}(W_{ji})\approx \frac{1}{\sqrt{d}}.
+$$
+
+Sampling $W_{ji}\sim \mathrm{Unif}[-sf,sf]$ with $sf \propto 1/\sqrt{d}$ implements this “variance-preserving” idea up to a constant factor (this is the same vibe as Xavier / He init).
+
+---
+
+We're going to try classifying MNIST, so we will define an MLP suitable for it.
+
+```python
+class MLP(Module):
+    def __init__(self):
+        super().__init__()
+        self.linear1 = Linear(28 * 28, 64)
+        self.linear2 = Linear(64, 64)
+        self.relu1 = ReLU()
+        self.relu2 = ReLU()
+        self.output = Linear(64, 10)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = x.reshape((x.shape[0], 28 * 28))
+        x = self.relu1(self.linear1(x))
+        x = self.relu2(self.linear2(x))
+        x = self.output(x)
+        return x
+```
+
+### Backward for indexing (`getitem`)
+
+If we have the gradient of $L$ w.r.t. `x[index]`, what is the gradient of $L$ w.r.t. `x`?
+
+It’s an array of zeros, except we “scatter-add” the upstream gradient values back into the positions selected by `index`. (If the same position is selected multiple times, the gradients should add.)
+
+`index` can be an integer, a tuple of integers, or integer arrays. See NumPy’s docs on integer indexing [here](https://numpy.org/doc/stable/user/basics.indexing.html#integer-array-indexing).
+
+```python
+def coerce_index(index):
+    if isinstance(index, tuple):
+        return tuple(i.array if hasattr(i, "array") else i for i in index)
+    return index
+
+def _getitem(x, index):
+    return x[coerce_index(index)]
+
+def getitem_back(grad_out, out, x, index):
+    gx = np.zeros_like(x)
+    np.add.at(gx, coerce_index(index), grad_out)
+    return gx
+
+getitem = wrap_forward_fn(_getitem)
+BACK_FUNCS.add_back_func(_getitem, 0, getitem_back)
+```
+
+Now that we can do integer-array indexing like `logprobs[arange(B), y]`, we can write cross-entropy in ~3 lines.
+
+Let `logits = z ∈ R^{B×C}` and labels `y ∈ {0,…,C-1}^B`. Define the per-example loss
+
+$$
+\ell_i
+= -\log\frac{e^{z_{i,y_i}}}{\sum_{c=0}^{C-1} e^{z_{i,c}}}
+= -z_{i,y_i} + \log\Big(\sum_{c=0}^{C-1} e^{z_{i,c}}\Big).
+$$
+
+Equivalently, with log-softmax:
+
+$$
+\log p_{i,c} = z_{i,c} - \log\Big(\sum_{k} e^{z_{i,k}}\Big),
+\qquad
+\ell_i = -\log p_{i,y_i}.
+$$
+
+Vectorized form (left-to-right):
+
+$$
+\mathrm{logZ} = \log\Big(\sum_{c} e^{z_{\cdot,c}}\Big)\in\mathbb{R}^{B\times 1},
+\quad
+\mathrm{logprobs}=z-\mathrm{logZ}\in\mathbb{R}^{B\times C},
+\quad
+\ell = -\,\mathrm{logprobs}[\mathrm{arange}(B),\,y]\in\mathbb{R}^{B}.
+$$
+
+Quick gradient sanity (useful intuition): if $p=\mathrm{softmax}(z)$ and $e_{y_i}$ is one-hot, then
+
+$$
+\frac{\partial \ell_i}{\partial z_{i,\cdot}} = p_{i,\cdot}-e_{y_i}.
+$$
+
+So the correct class gets pushed up, others get pushed down, scaled by current probabilities.
+
+*(If you care about stability later: replace $z$ by $z-\max_c z_{i,c}$ inside the $\log\sum e^{\cdot}$. Same math, fewer overflows.)*
+
+```python
+def cross_entropy(logits, true_labels):
+    bsz = logits.shape[0]
+
+    denom = logits.exp().sum(dim=1, keepdim=True).log()
+    log_probs = logits - denom
+
+    correct = log_probs[arange(0, bsz), true_labels]
+    return -correct
+```
+
+---
+
+### Turning gradients off (like `torch.inference_mode`)
+
+The final thing our backprop system needs is the ability to turn off graph-building completely.
+
+```python
+class NoGrad:
+    was_enabled: bool
+
+    def __enter__(self):
+        global grad_tracking_enabled
+        self.was_enabled = grad_tracking_enabled
+        grad_tracking_enabled = False
+
+    def __exit__(self, type, value, traceback):
+        global grad_tracking_enabled
+        grad_tracking_enabled = self.was_enabled
+```
+
+### SGD (Stochastic Gradient Descent)
+
+SGD is the simplest optimizer: for each parameter $p$, do
+
+$$
+p \leftarrow p - \eta \,\nabla_p L,
+$$
+
+where $\eta$ is the learning rate.
+
+- `zero_grad()` clears saved gradients from the previous step
+- `step()` applies the update using the gradients we just computed with `backward()`
+
+```python
+class SGD:
+    def __init__(self, params, lr):
+        self.params = list(params)
+        self.lr = lr
+
+    def zero_grad(self):
+        for p in self.params:
+            p.grad = None
+
+    def step(self):
+        for p in self.params:
+            if p.grad is None:
+                continue
+            # p -= lr * grad
+            p.sub_(Tensor(p.grad.array), alpha=self.lr)
+```
+
+At this point the hard part is done: we can do `forward → cross_entropy → backward → SGD.step`, so training is basically just plumbing.
+
+Pipeline (left-to-right):
+
+`MNIST DataLoader (torch tensors)` → `numpy()` → `Tensor(...)` → `model(x)=logits` → `loss = CE(logits,y)` → `loss.backward()` → `optimizer.step()`.
+
+We’ll train for a few epochs, print a running loss, then evaluate with `NoGrad()` (same forward pass, but no graph / grads), and report test loss + accuracy. After this runs, you’ve got an end-to-end “from scratch” system: data → compute graph → backprop → parameter updates.
+
+```python
+import numpy as np
+
+def get_mnist_loaders(batch_size=128, num_workers=0):
+    # Returns (train_loader, test_loader) yielding (data, target) as torch tensors.
+    # We convert to numpy inside the training loop.
+    try:
+        import torch
+        from torch.utils.data import DataLoader
+        from torchvision import datasets, transforms
+    except Exception as e:
+        raise RuntimeError(
+            "You need torch + torchvision for this loader.\n"
+            "Install with: pip install torch torchvision\n"
+            f"Original import error: {e}"
+        )
+
+    tfm = transforms.Compose([transforms.ToTensor()])  # -> float in [0,1], shape (1,28,28)
+
+    train_ds = datasets.MNIST(root="./data", train=True, download=True, transform=tfm)
+    test_ds  = datasets.MNIST(root="./data", train=False, download=True, transform=tfm)
+
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    test_loader  = DataLoader(test_ds,  batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    return train_loader, test_loader
+
+
+def train_epoch(model, train_loader, optimizer, epoch=0, log_every=200):
+    total_loss = 0.0
+    n_seen = 0
+
+    for i, (data, target) in enumerate(train_loader):
+        # data: torch.FloatTensor, shape (B,1,28,28)
+        # target: torch.LongTensor, shape (B,)
+        x = Tensor(data.numpy().astype(np.float32))
+        y = Tensor(target.numpy().astype(np.int64))
+
+        optimizer.zero_grad()
+        logits = model(x)                                   # (B,10)
+        loss = cross_entropy(logits, y).sum() / len(logits) # scalar Tensor
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item() * len(logits)
+        n_seen += len(logits)
+
+        if (i % log_every) == 0:
+            print(f"epoch {epoch} | step {i:04d} | loss {loss.item():.4f}")
+
+    print(f"epoch {epoch} train avg loss: {total_loss / max(n_seen,1):.4f}")
+
+
+def eval_epoch(model, test_loader):
+    correct = 0
+    total = 0
+    total_loss = 0.0
+
+    with NoGrad():
+        for data, target in test_loader:
+            x = Tensor(data.numpy().astype(np.float32))
+            y = Tensor(target.numpy().astype(np.int64))
+
+            logits = model(x)
+            loss_vec = cross_entropy(logits, y)  # shape (B,)
+            total_loss += loss_vec.sum().item()
+
+            pred = logits.argmax(dim=1, keepdim=False)  # shape (B,)
+            correct += (pred == y).sum().item()
+            total += len(y)
+
+    avg_loss = total_loss / max(total,1)
+    acc = correct / max(total,1)
+    print(f"test avg loss: {avg_loss:.4f} | acc: {acc:.2%}")
+    return avg_loss, acc
+
+
+train_loader, test_loader = get_mnist_loaders(batch_size=128)
+
+model = MLP()
+optimizer = SGD(model.parameters(), lr=0.01)
+
+for epoch in range(5):
+    train_epoch(model, train_loader, optimizer, epoch=epoch, log_every=200)
+    eval_epoch(model, test_loader)
+```
+
