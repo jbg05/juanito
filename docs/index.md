@@ -1,13 +1,15 @@
 ---
-title: Home
-layout: default
-nav_order: 1
-permalink: /
+layout: home
+author_profile: true
+title: "Home"
 ---
 
-# Juan’s ML Notes
+Welcome. This is where I post notes + implementations (with math where it helps).
 
-This site collects my notes + implementations (math included).
+- Start with: **Backprop from Scratch**
+- Then: **Convnets / ResNets**
+- Then: **RL**
+
 
 ## Backpropagation from Scratch
 
