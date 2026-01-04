@@ -6,6 +6,10 @@ baseurl: ""  # keep "" for username.github.io repos
 # Theme (GitHub Pages friendly)
 remote_theme: "mmistakes/minimal-mistakes"
 
+# MathJax (render LaTeX)
+head_scripts:
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js
+
 plugins:
   - jekyll-remote-theme
   - jekyll-feed
