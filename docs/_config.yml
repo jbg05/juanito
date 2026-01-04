@@ -1,16 +1,8 @@
-title: Juan's Notes
 remote_theme: just-the-docs/just-the-docs
+plugins:
+  - jekyll-remote-theme
 
-permalink: pretty
-color_scheme: color_scheme: warm_editor
-highlighter: rouge
+color_scheme: warm
 
-# Just-the-Docs math switch
-math: mathjax
-
-kramdown:
-  # keep $$...$$ / $...$ literally in the HTML so MathJax can render it client-side :contentReference[oaicite:1]{index=1}
-  math_engine: nil
-  syntax_highlighter_opts:
-    block:
-      line_numbers: false
+# (optional but nice)
+search_enabled: true
