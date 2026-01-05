@@ -13,19 +13,24 @@ plugins:
   - jekyll-seo-tag
   - jekyll-sitemap
   - jekyll-paginate
+  - jekyll-include-cache
 
-# Warm research-blog vibe
-minimal_mistakes_skin: "sunrise"   # warm + cozy
+# Darker warm theme
+minimal_mistakes_skin: "dark"   # dark base for warm customization
 
 # Build behavior
 markdown: kramdown
 highlighter: rouge
 permalink: /:categories/:title/
 
-# Code block quality
+# Code block quality + Math support
 kramdown:
   input: GFM
   syntax_highlighter: rouge
+  math_engine: mathjax
+  syntax_highlighter_opts:
+    block:
+      line_numbers: false
 
 # Blog defaults
 paginate: 8
@@ -43,6 +48,9 @@ masthead_title: "Juan’s Notes"
 # Optional nice-to-haves
 search: true
 breadcrumbs: true
+
+# Include navigation
+include: ["_pages"]
 
 defaults:
   # Blog posts

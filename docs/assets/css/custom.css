@@ -1,0 +1,245 @@
+/* Warm dark theme customizations for Minimal Mistakes */
+
+/* Overall warm dark background */
+html {
+  font-size: 16px;
+  background-color: #1a1510;
+}
+
+body {
+  background-color: #1a1510;
+  color: #e8dcc8;
+}
+
+/* Page content */
+.page {
+  background-color: #1a1510;
+}
+
+.page__content {
+  color: #e8dcc8;
+}
+
+/* Headings with warm tone */
+h1, h2, h3, h4, h5, h6 {
+  color: #f5e6d3;
+  font-weight: 600;
+}
+
+/* Links with warm amber */
+a {
+  color: #d4a574;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #e6b886;
+  text-decoration: underline;
+}
+
+/* Navigation bar */
+.masthead {
+  background-color: #0f0d0a;
+  border-bottom: 1px solid #2d2418;
+}
+
+.greedy-nav {
+  background: #0f0d0a;
+}
+
+.greedy-nav a {
+  color: #d4a574;
+}
+
+.greedy-nav a:hover {
+  color: #e6b886;
+}
+
+.greedy-nav .visible-links a:before {
+  background: #d4a574;
+}
+
+/* Site title */
+.site-title {
+  color: #f5e6d3;
+}
+
+/* Code blocks - clean minimal style */
+pre.highlight,
+div.highlighter-rouge,
+figure.highlight {
+  background-color: #0d0b08;
+  border: none;
+  border-radius: 8px;
+  padding: 1em;
+  margin: 1.5em 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+pre.highlight code,
+.highlight pre {
+  background-color: transparent;
+  border: none;
+  padding: 0;
+}
+
+/* Inline code */
+code.language-plaintext {
+  background-color: #2d2418;
+  color: #e6b886;
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+  border: 1px solid #3d3424;
+}
+
+/* Code syntax highlighting - warm palette */
+.highlight {
+  color: #e8dcc8;
+}
+
+.highlight .k,
+.highlight .kd,
+.highlight .kn { color: #d4a574; } /* keywords */
+
+.highlight .s,
+.highlight .s1,
+.highlight .s2 { color: #a8c7a0; } /* strings */
+
+.highlight .mi,
+.highlight .mf { color: #e6b886; } /* numbers */
+
+.highlight .c,
+.highlight .c1,
+.highlight .cm { color: #7a6f5d; font-style: italic; } /* comments */
+
+.highlight .nf { color: #c9a76e; } /* functions */
+
+.highlight .nc { color: #d9b380; } /* classes */
+
+/* Blockquotes */
+blockquote {
+  border-left: 4px solid #d4a574;
+  background-color: #231d15;
+  padding: 1em 1.5em;
+  margin: 1.5em 0;
+  border-radius: 4px;
+  color: #e8dcc8;
+}
+
+/* Tables */
+table {
+  background-color: #231d15;
+  border: 1px solid #2d2418;
+}
+
+th {
+  background-color: #2d2418;
+  color: #f5e6d3;
+  border-bottom: 2px solid #3d3424;
+}
+
+td {
+  border-bottom: 1px solid #2d2418;
+  color: #e8dcc8;
+}
+
+/* Sidebar (author profile) */
+.sidebar {
+  background-color: #0f0d0a;
+  border-right: 1px solid #2d2418;
+}
+
+.author__name {
+  color: #f5e6d3;
+}
+
+.author__bio {
+  color: #b8a894;
+}
+
+/* Archive items (posts list) */
+.archive__item-title {
+  color: #f5e6d3;
+}
+
+.archive__item-excerpt {
+  color: #b8a894;
+}
+
+/* TOC */
+.toc {
+  background-color: #231d15;
+  border: 1px solid #2d2418;
+  border-radius: 8px;
+}
+
+.toc__menu a {
+  color: #d4a574;
+}
+
+.toc__menu a:hover {
+  color: #e6b886;
+}
+
+/* Math display */
+mjx-container {
+  color: #e8dcc8 !important;
+}
+
+mjx-math {
+  color: #e8dcc8 !important;
+}
+
+/* Notice/warning blocks */
+.notice,
+.notice--warning,
+.notice--info {
+  background-color: #231d15;
+  border-left: 4px solid #d4a574;
+  color: #e8dcc8;
+  border-radius: 4px;
+}
+
+/* Footer */
+.page__footer {
+  background-color: #0f0d0a;
+  border-top: 1px solid #2d2418;
+  color: #b8a894;
+}
+
+.page__footer-follow a {
+  color: #d4a574;
+}
+
+/* Search */
+.search-content {
+  background-color: #231d15;
+  border: 1px solid #2d2418;
+}
+
+input[type="text"] {
+  background-color: #2d2418;
+  border: 1px solid #3d3424;
+  color: #e8dcc8;
+}
+
+/* Buttons */
+.btn {
+  background-color: #d4a574;
+  color: #1a1510;
+}
+
+.btn:hover {
+  background-color: #e6b886;
+  color: #1a1510;
+}
+
+/* Pagination */
+.pagination {
+  color: #b8a894;
+}
+
+.pagination a {
+  color: #d4a574;
+}
