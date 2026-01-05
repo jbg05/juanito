@@ -4,8 +4,10 @@ author_profile: true
 title: "Home"
 ---
 
-Welcome. This is where I post notes + implementations (with math where it helps).
+Welcome. My 2026 New Year's resolution is to really learn ML from the ground up — this is where I'm documenting the journey.
 
-- Start with: **Backprop from Scratch**
+Notes + implementations, with all the math. Follow along if you want!
+
+- Start with: **MNIST from Scratch (Backprop, Autodiff, SGD)**
 - Then: **Convnets / ResNets**
 - Then: **RL**
