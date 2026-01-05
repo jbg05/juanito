@@ -5,6 +5,8 @@ permalink: /about/
 toc: false
 ---
 
-I’m Juan. This site is a growing collection of ML + math notes, plus implementations.
+Hey, I'm Juan. My 2026 New Year's resolution is to really learn ML from the ground up.
 
-If something’s unclear or broken, I’ll fix it over time.
+This site is where I'm documenting the journey — math notes, implementations, and cool things I build along the way. Follow along if you want!
+
+If something's unclear or broken, I'll fix it over time.

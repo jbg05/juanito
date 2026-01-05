@@ -7,7 +7,18 @@ toc: true
 toc_sticky: true
 ---
 
+> ## 🚧 Reminder / Next steps (don't forget)
+> You paused here — come back and build the *cool* extensions:
+>
+> - [ ] **Central-difference gradcheck** (verify your autograd is correct)
+> - [ ] **Conv2d layer** + swap MLP → small CNN for MNIST (should boost accuracy)
+> - [ ] **Residual blocks (mini-ResNet vibes)** (start with `x + f(x)`, then maybe BN later)
+>
+> *Last noted: 2026-01-03.*
+{: .notice--warning }
+
 We will implement backpropagation from scratch and run it for the MNIST data set.
+
 ## Backpropagation from Scratch
 
 ```python
@@ -1193,16 +1204,3 @@ for epoch in range(5):
     train_epoch(model, train_loader, optimizer, epoch=epoch, log_every=200)
     eval_epoch(model, test_loader)
 ```
-
----
-
-> ## 🚧 Reminder / Next steps (don’t forget)
-> You paused here — come back and build the *cool* extensions:
->
-> - [ ] **Central-difference gradcheck** (verify your autograd is correct)
-> - [ ] **Conv2d layer** + swap MLP → small CNN for MNIST (should boost accuracy)
-> - [ ] **Residual blocks (mini-ResNet vibes)** (start with `x + f(x)`, then maybe BN later)
->
-> *Last noted: 2026-01-03.*
-{: .warning }
-

@@ -39,8 +39,7 @@ paginate_path: /page:num/
 # Author
 author:
   name: "Juan"
-  avatar: ""  # optional: "/assets/images/avatar.png"
-  bio: "Math + ML notes, implementations, and random deep dives."
+  bio: "Learning ML from scratch. Math + implementations."
 
 # Top nav
 masthead_title: "Juan’s Notes"
