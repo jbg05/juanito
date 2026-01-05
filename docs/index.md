@@ -4,10 +4,6 @@ author_profile: true
 title: "Home"
 ---
 
-Welcome. My 2026 New Year's resolution is to really learn ML from the ground up — this is where I'm documenting the journey.
+I've always heard about ML and thought it was cool, but never really dove in. My New Year's resolution for 2026 was to finally learn it properly and give it a real shot.
 
-Notes + implementations, with all the math. Follow along if you want!
-
-- Start with: **MNIST from Scratch (Backprop, Autodiff, SGD)**
-- Then: **Convnets / ResNets**
-- Then: **RL**
+This is where I'm documenting everything — notes, implementations, cool stuff I build along the way. Follow along if you want!
