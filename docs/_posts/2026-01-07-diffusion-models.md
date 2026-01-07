@@ -8,51 +8,62 @@ toc_sticky: true
 math: true
 ---
 
-## ELBO and Variational Autoencoders
+## Background: ELBO and VAE
 
-**Setup:** Joint distribution $p(x, z)$ with latent $z$, observed data $x$.
-
-$$
-p(x) = \int p(x,z) dz = \frac{p(x,z)}{p(z \mid x)}
-$$
-
-Computing $p(x)$ directly is intractable (need to marginalize $z$ or access true posterior $p(z \mid x)$). Instead, use variational distribution $q_\phi(z \mid x)$ to derive ELBO:
+We model data $x$ with latent variable $z$ via joint distribution $p(x,z)$. Two ways to recover $p(x)$:
 
 $$
-\log p(x) \geq \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(x,z)}{q_\phi(z \mid x)} \right]
+p(x) = \int p(x,z) dz \quad \text{or} \quad p(x) = \frac{p(x,z)}{p(z \mid x)}
 $$
 
-**ELBO decomposition:**
+Both intractable: first requires marginalizing all $z$, second needs true posterior $p(z \mid x)$.
+
+**ELBO derivation.** Introduce approximate posterior $q_\phi(z \mid x)$. Start with log evidence:
 
 $$
-\log p(x) = \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(x,z)}{q_\phi(z \mid x)} \right] + D_{\text{KL}}(q_\phi(z \mid x) \| p(z \mid x))
+\begin{align}
+\log p(x) &= \log \int p(x,z) dz \\
+&= \log \int \frac{p(x,z) q_\phi(z \mid x)}{q_\phi(z \mid x)} dz \\
+&= \log \mathbb{E}_{q_\phi(z \mid x)} \left[ \frac{p(x,z)}{q_\phi(z \mid x)} \right] \\
+&\geq \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(x,z)}{q_\phi(z \mid x)} \right] \quad \text{(Jensen's Inequality)}
+\end{align}
 $$
 
-Since $D_{\text{KL}} \geq 0$, ELBO is lower bound. Maximizing ELBO minimizes KL divergence to true posterior.
-
-**VAE formulation:**
+Equivalently, with chain rule:
 
 $$
-\mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(x,z)}{q_\phi(z \mid x)} \right] = \underbrace{\mathbb{E}_{q_\phi(z \mid x)}[\log p_\theta(x \mid z)]}_{\text{reconstruction}} - \underbrace{D_{\text{KL}}(q_\phi(z \mid x) \| p(z))}_{\text{prior matching}}
+\begin{align}
+\log p(x) &= \mathbb{E}_{q_\phi(z \mid x)}[\log p(x)] \\
+&= \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(x,z)}{p(z \mid x)} \right] \\
+&= \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(x,z) q_\phi(z \mid x)}{p(z \mid x) q_\phi(z \mid x)} \right] \\
+&= \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(x,z)}{q_\phi(z \mid x)} \right] + D_{\text{KL}}(q_\phi(z \mid x) \| p(z \mid x))
+\end{align}
 $$
 
-**Standard choices:**
+Since KL divergence $\geq 0$, the ELBO is indeed a lower bound. Maximizing ELBO minimizes the KL between approximate and true posterior.
+
+**VAE setup.** Split the ELBO:
 
 $$
-q_\phi(z \mid x) = \mathcal{N}(z; \mu_\phi(x), \sigma_\phi^2(x) I), \quad p(z) = \mathcal{N}(0, I)
+\mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(x,z)}{q_\phi(z \mid x)} \right] = \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p_\theta(x \mid z) p(z)}{q_\phi(z \mid x)} \right]
+= \underbrace{\mathbb{E}_{q_\phi(z \mid x)}[\log p_\theta(x \mid z)]}_{\text{reconstruction}} - \underbrace{D_{\text{KL}}(q_\phi(z \mid x) \| p(z))}_{\text{prior matching}}
 $$
 
-**Reparameterization trick:** Sample $z = \mu_\phi(x) + \sigma_\phi(x) \odot \epsilon$ with $\epsilon \sim \mathcal{N}(0, I)$ to backprop through sampling.
-
-**Objective (Monte Carlo):**
+Encoder $q_\phi(z \mid x)$ maps $x \to$ latent distribution. Decoder $p_\theta(x \mid z)$ reconstructs $x$ from $z$. Gaussian choices:
 
 $$
-\max_{\phi, \theta} \sum_{l=1}^L \log p_\theta(x \mid z^{(l)}) - D_{\text{KL}}(q_\phi(z \mid x) \| p(z))
+q_\phi(z \mid x) = \mathcal{N}(z; \mu_\phi(x), \sigma_\phi^2(x) \mathbf{I}), \quad p(z) = \mathcal{N}(0, \mathbf{I})
+$$
+
+**Reparameterization trick.** To backprop through stochastic $z$, write $z = \mu_\phi(x) + \sigma_\phi(x) \odot \epsilon$ where $\epsilon \sim \mathcal{N}(0, \mathbf{I})$. Then KL term is analytic, reconstruction term uses Monte Carlo:
+
+$$
+\max_{\phi,\theta} \sum_{l=1}^L \log p_\theta(x \mid z^{(l)}) - D_{\text{KL}}(q_\phi(z \mid x) \| p(z))
 $$
 
 ### Hierarchical VAE (Markovian)
 
-Chain latents $z_1, \ldots, z_T$ in Markov structure:
+Stack $T$ latents in Markov chain. Joint and posterior:
 
 $$
 p(x, z_{1:T}) = p(z_T) p_\theta(x \mid z_1) \prod_{t=2}^T p_\theta(z_{t-1} \mid z_t)
@@ -62,13 +73,11 @@ $$
 q_\phi(z_{1:T} \mid x) = q_\phi(z_1 \mid x) \prod_{t=2}^T q_\phi(z_t \mid z_{t-1})
 $$
 
-**ELBO:**
+ELBO becomes:
 
 $$
 \mathbb{E}_{q_\phi(z_{1:T} \mid x)} \left[ \log \frac{p(x, z_{1:T})}{q_\phi(z_{1:T} \mid x)} \right] = \mathbb{E}_{q_\phi} \left[ \log \frac{p(z_T) p_\theta(x \mid z_1) \prod_{t=2}^T p_\theta(z_{t-1} \mid z_t)}{q_\phi(z_1 \mid x) \prod_{t=2}^T q_\phi(z_t \mid z_{t-1})} \right]
 $$
-
-This hierarchical structure connects to diffusion models by treating the forward process as encoder $q$ and reverse as decoder $p_\theta$.
 
 ---
 
