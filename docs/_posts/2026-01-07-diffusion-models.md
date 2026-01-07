@@ -18,7 +18,7 @@ $$
 
 Problem is both suck. First one means integrating over all possible latents. Second one needs the true posterior $p(z \mid x)$ which we don't have.
 
-**Getting the ELBO.** Here's the workaround: introduce an approximate posterior $q_\phi(z \mid x)$ that we *can* work with. Now we can derive a lower bound on the log evidence.
+**Getting the ELBO.** Workaround: introduce an approximate posterior $q_\phi(z \mid x)$ that we *can* work with, then derive a lower bound on log evidence.
 
 Via Jensen's inequality:
 
@@ -51,13 +51,13 @@ $$
 = \underbrace{\mathbb{E}_{q_\phi(z \mid x)}[\log p_\theta(x \mid z)]}_{\text{reconstruction}} - \underbrace{D_{\text{KL}}(q_\phi(z \mid x) \| p(z))}_{\text{prior matching}}
 $$
 
-The encoder $q_\phi(z \mid x)$ compresses $x$ into a distribution over latents. The decoder $p_\theta(x \mid z)$ tries to reconstruct the original $x$ from those latents. Standard setup uses Gaussians:
+Encoder $q_\phi(z \mid x)$ compresses $x$ into distribution over latents, decoder $p_\theta(x \mid z)$ reconstructs original $x$. Standard setup uses Gaussians:
 
 $$
 q_\phi(z \mid x) = \mathcal{N}(z; \mu_\phi(x), \sigma_\phi^2(x) \mathbf{I}), \quad p(z) = \mathcal{N}(0, \mathbf{I})
 $$
 
-**Reparameterization trick.** Can't backprop through sampling, so we rewrite: $z = \mu_\phi(x) + \sigma_\phi(x) \odot \epsilon$ with $\epsilon \sim \mathcal{N}(0, \mathbf{I})$. Now the randomness is separated out and we can differentiate through $\mu_\phi$ and $\sigma_\phi$. KL term becomes closed-form, reconstruction gets Monte Carlo'd:
+**Reparameterization trick.** Can't backprop through sampling, so rewrite: $z = \mu_\phi(x) + \sigma_\phi(x) \odot \epsilon$ with $\epsilon \sim \mathcal{N}(0, \mathbf{I})$. Randomness gets separated out so we can differentiate through $\mu_\phi$ and $\sigma_\phi$. KL term becomes closed-form, reconstruction gets Monte Carlo'd:
 
 $$
 \max_{\phi,\theta} \sum_{l=1}^L \log p_\theta(x \mid z^{(l)}) - D_{\text{KL}}(q_\phi(z \mid x) \| p(z))
@@ -208,17 +208,17 @@ where $x_t = \sqrt{\bar{\alpha}_t} x_0 + \sqrt{1-\bar{\alpha}_t} \epsilon$ and $
 
 ### Learning the Noise Schedule via SNR
 
-So far we've treated $\alpha_t$ as fixed hyperparameters. But we can also learn them! The key insight is to reparameterize everything in terms of the **signal-to-noise ratio (SNR)**.
+So far $\alpha_t$ has been fixed hyperparameters. But we can learn them! Key insight: reparameterize everything in terms of **signal-to-noise ratio (SNR)**.
 
-Recall from earlier that $q(x_t \mid x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t} x_0, (1-\bar{\alpha}_t) \mathbf{I})$. The signal-to-noise ratio at timestep $t$ is:
+Recall $q(x_t \mid x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t} x_0, (1-\bar{\alpha}_t) \mathbf{I})$. SNR at timestep $t$:
 
 $$
 \text{SNR}(t) = \frac{\bar{\alpha}_t}{1 - \bar{\alpha}_t}
 $$
 
-This ratio tells us how much signal vs. noise is present at timestep $t$. High SNR means mostly signal, low SNR means mostly noise.
+High SNR = mostly signal, low SNR = mostly noise.
 
-Now here's the magic: we can rewrite our objective in terms of SNR. Starting from the KL minimization objective (derived from equations 101-108 in paper):
+Here's the magic: rewrite objective in terms of SNR. Starting from KL minimization (see paper eqs 101-108):
 
 $$
 \frac{1}{2\sigma_q^2(t)} \frac{\bar{\alpha}_{t-1}(1-\alpha_t)^2}{(1-\bar{\alpha}_t)^2} \| \hat{x}_\theta(x_t, t) - x_0 \|_2^2
@@ -233,7 +233,7 @@ $$
 \end{align}
 $$
 
-This is beautiful! The objective at each timestep is weighted by the *change* in SNR between consecutive steps. As we go forward in the diffusion process, SNR decreases (more noise), so $\text{SNR}(t-1) - \text{SNR}(t)$ is positive.
+Beautiful! Objective at each timestep gets weighted by the *change* in SNR. Going forward means SNR decreases (more noise), so $\text{SNR}(t-1) - \text{SNR}(t)$ stays positive.
 
 **Learning the schedule.** Instead of fixing $\alpha_t$ values, we can parameterize:
 
@@ -241,7 +241,7 @@ $$
 \text{SNR}(t) = \exp(-\omega_\eta(t))
 $$
 
-where $\omega_\eta(t)$ is a monotonically increasing neural network with parameters $\eta$. As $t$ increases, $\omega_\eta(t)$ increases, so $\text{SNR}(t)$ decreases (more noise over time). This gives us:
+where $\omega_\eta(t)$ is a monotonically increasing network with params $\eta$. As $t$ goes up, $\omega_\eta(t)$ goes up, so $\text{SNR}(t)$ goes down (more noise). Then:
 
 $$
 \frac{\bar{\alpha}_t}{1-\bar{\alpha}_t} = \exp(-\omega_\eta(t))
@@ -259,24 +259,24 @@ $$
 1 - \bar{\alpha}_t = \text{sigmoid}(\omega_\eta(t))
 $$
 
-Now we jointly optimize both the denoising network $\theta$ and the noise schedule $\eta$! The network $\omega_\eta(t)$ learns the optimal rate at which to add noise at each timestep.
+Now jointly optimize both denoising network $\theta$ and noise schedule $\eta$! Network $\omega_\eta(t)$ learns optimal noise rate at each timestep.
 
 ### Three Equivalent Interpretations
 
-So here's something cool: turns out there are three totally different ways to think about what a VDM is learning, and they're all mathematically equivalent! We've been training a network to predict the original clean image $x_0$ from a noisy version $x_t$. But that same network can be reframed as:
+Here's something cool: three totally different ways to think about what a VDM learns, all mathematically equivalent! We've been predicting clean image $x_0$ from noisy $x_t$, but same network can be:
 
-1. **Predicting the original image** $x_0$ (what we've been doing)
-2. **Predicting the noise** $\epsilon_0$ that was added to create $x_t$
-3. **Predicting the score function** $\nabla_{x_t} \log p(x_t)$ (gradient of log density)
+1. **Predicting the original image** $x_0$ (what we've done)
+2. **Predicting the noise** $\epsilon_0$ added to create $x_t$
+3. **Predicting the score** $\nabla_{x_t} \log p(x_t)$ (gradient of log density)
 
-All three give you the same model, just different perspectives! Let me break down why this matters.
+All three are the same model, different lens.
 
 <details>
 <summary><b>Click to expand: Full mathematical derivation</b></summary>
 
 **Interpretation 1: Predicting the noise $\epsilon_0$**
 
-Start by rearranging how we express $x_0$ in terms of $x_t$. Remember from our forward process that:
+Rearrange how we express $x_0$ in terms of $x_t$. From forward process:
 
 $$
 x_t = \sqrt{\bar{\alpha}_t} x_0 + \sqrt{1-\bar{\alpha}_t} \epsilon_0
@@ -288,7 +288,7 @@ $$
 x_0 = \frac{x_t - \sqrt{1-\bar{\alpha}_t} \epsilon_0}{\sqrt{\bar{\alpha}_t}}
 $$
 
-Now plug this into our ground-truth denoising mean $\mu_q(x_t, x_0)$ from before. After substitution and simplification (skipping the algebra), we get:
+Plug into ground-truth denoising mean $\mu_q(x_t, x_0)$. After substitution (skipping algebra):
 
 $$
 \mu_q(x_t, x_0) = \frac{1}{\sqrt{\alpha_t}} x_t - \frac{1-\alpha_t}{\sqrt{1-\bar{\alpha}_t}\sqrt{\alpha_t}} \epsilon_0
@@ -306,25 +306,25 @@ $$
 \min_\theta \mathbb{E}_{t, x_0, \epsilon_0} \left[ \| \epsilon_0 - \hat{\epsilon}_\theta(x_t, t) \|_2^2 \right]
 $$
 
-This noise prediction formulation often works better empirically! The network learns "what noise was added" rather than "what the clean image looks like."
+Noise prediction often works better empirically! Network learns "what noise was added" vs "what clean image looks like."
 
 **Interpretation 2: Predicting the score function $\nabla_{x_t} \log p(x_t)$**
 
-Here's where it gets really interesting. The **score function** $\nabla_{x_t} \log p(x_t)$ tells us which direction in data space increases the log probability most. Think of it as an arrow pointing "uphill" toward more likely images.
+**Score function** $\nabla_{x_t} \log p(x_t)$ = direction in data space that increases log probability most. Arrow pointing "uphill" toward likely images.
 
-There's a classic result called **Tweedie's Formula** (used a lot in empirical Bayes) that connects the mean of a posterior to the score. For a Gaussian $z \sim \mathcal{N}(z; \mu, \Sigma)$, Tweedie says:
+**Tweedie's Formula** (classic empirical Bayes result) connects posterior mean to score. For Gaussian $z \sim \mathcal{N}(z; \mu, \Sigma)$:
 
 $$
 \mathbb{E}[\mu \mid z] = z + \Sigma \nabla_z \log p(z)
 $$
 
-Applying this to our forward process $q(x_t \mid x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t} x_0, (1-\bar{\alpha}_t) \mathbf{I})$, we get:
+Apply to forward process $q(x_t \mid x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t} x_0, (1-\bar{\alpha}_t) \mathbf{I})$:
 
 $$
 \mathbb{E}[\mu_{x_t} \mid x_t] = x_t + (1-\bar{\alpha}_t) \nabla_{x_t} \log p(x_t)
 $$
 
-where the true mean is $\mu_{x_t} = \sqrt{\bar{\alpha}_t} x_0$. Rearranging:
+True mean is $\mu_{x_t} = \sqrt{\bar{\alpha}_t} x_0$, so:
 
 $$
 \sqrt{\bar{\alpha}_t} x_0 = x_t + (1-\bar{\alpha}_t) \nabla_{x_t} \log p(x_t)
@@ -366,13 +366,13 @@ $$
 \nabla_{x_t} \log p(x_t) = -\frac{1}{\sqrt{1-\bar{\alpha}_t}} \epsilon_0
 $$
 
-The score function and source noise differ only by a constant scaling factor! The score points in the opposite direction of the noise (makes sense - noise corrupts images, score points toward cleaner ones).
+Score and noise differ by just a scaling factor! Score points opposite to noise (makes sense - noise corrupts, score points toward clean).
 
-This means learning to denoise is *exactly the same* as learning the score function. This connection to **score-based models** is why diffusion models are so powerful.
+Learning to denoise = learning the score. This connection to **score-based models** is why diffusion works so well.
 
 </details>
 
-**Why this matters:** In practice, most implementations predict the noise $\epsilon_0$ since it tends to train more stably. But understanding the score interpretation connects diffusion models to a whole other framework (score matching, Langevin dynamics) and gives us intuition: the model learns which direction to move in image space to make images more "realistic."
+**Why it matters:** Most implementations predict noise $\epsilon_0$ (trains more stably). But score interpretation connects diffusion to score matching/Langevin dynamics and gives intuition: model learns which direction moves toward "realistic" images.
 
 ---
 
