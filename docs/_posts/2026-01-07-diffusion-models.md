@@ -204,7 +204,7 @@ $$
 
 where $x_t = \sqrt{\bar{\alpha}_t} x_0 + \sqrt{1-\bar{\alpha}_t} \epsilon$ and $t \sim \mathcal{U}(1, T)$.
 
-**Sampling:** Start $x_T \sim \mathcal{N}(0, \mathbf{I})$. For $t = T, \ldots, 1$, iteratively denoise using learned $p_\theta(x_{t-1} \mid x_t)$.
+**Sampling:** Start with $x_T \sim \mathcal{N}(0, \mathbf{I})$. For $t = T, \ldots, 1$, iteratively denoise using learned transitions.
 
 ---
 
