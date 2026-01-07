@@ -8,6 +8,70 @@ toc_sticky: true
 math: true
 ---
 
+## ELBO and Variational Autoencoders
+
+**Setup:** Joint distribution $p(x, z)$ with latent $z$, observed data $x$.
+
+$$
+p(x) = \int p(x,z) dz = \frac{p(x,z)}{p(z \mid x)}
+$$
+
+Computing $p(x)$ directly is intractable (need to marginalize $z$ or access true posterior $p(z \mid x)$). Instead, use variational distribution $q_\phi(z \mid x)$ to derive ELBO:
+
+$$
+\log p(x) \geq \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(x,z)}{q_\phi(z \mid x)} \right]
+$$
+
+**ELBO decomposition:**
+
+$$
+\log p(x) = \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(x,z)}{q_\phi(z \mid x)} \right] + D_{\text{KL}}(q_\phi(z \mid x) \| p(z \mid x))
+$$
+
+Since $D_{\text{KL}} \geq 0$, ELBO is lower bound. Maximizing ELBO minimizes KL divergence to true posterior.
+
+**VAE formulation:**
+
+$$
+\mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(x,z)}{q_\phi(z \mid x)} \right] = \underbrace{\mathbb{E}_{q_\phi(z \mid x)}[\log p_\theta(x \mid z)]}_{\text{reconstruction}} - \underbrace{D_{\text{KL}}(q_\phi(z \mid x) \| p(z))}_{\text{prior matching}}
+$$
+
+**Standard choices:**
+
+$$
+q_\phi(z \mid x) = \mathcal{N}(z; \mu_\phi(x), \sigma_\phi^2(x) I), \quad p(z) = \mathcal{N}(0, I)
+$$
+
+**Reparameterization trick:** Sample $z = \mu_\phi(x) + \sigma_\phi(x) \odot \epsilon$ with $\epsilon \sim \mathcal{N}(0, I)$ to backprop through sampling.
+
+**Objective (Monte Carlo):**
+
+$$
+\max_{\phi, \theta} \sum_{l=1}^L \log p_\theta(x \mid z^{(l)}) - D_{\text{KL}}(q_\phi(z \mid x) \| p(z))
+$$
+
+### Hierarchical VAE (Markovian)
+
+Chain latents $z_1, \ldots, z_T$ in Markov structure:
+
+$$
+p(x, z_{1:T}) = p(z_T) p_\theta(x \mid z_1) \prod_{t=2}^T p_\theta(z_{t-1} \mid z_t)
+$$
+
+$$
+q_\phi(z_{1:T} \mid x) = q_\phi(z_1 \mid x) \prod_{t=2}^T q_\phi(z_t \mid z_{t-1})
+$$
+
+**ELBO:**
+
+$$
+\mathbb{E}_{q_\phi(z_{1:T} \mid x)} \left[ \log \frac{p(x, z_{1:T})}{q_\phi(z_{1:T} \mid x)} \right] = \mathbb{E}_{q_\phi} \left[ \log \frac{p(z_T) p_\theta(x \mid z_1) \prod_{t=2}^T p_\theta(z_{t-1} \mid z_t)}{q_\phi(z_1 \mid x) \prod_{t=2}^T q_\phi(z_t \mid z_{t-1})} \right]
+$$
+
+This hierarchical structure connects to diffusion models by treating the forward process as encoder $q$ and reverse as decoder $p_\theta$.
+
+---
+
 ## Forward Diffusion Process
 
 Let $x_0 \sim q(x_0)$ be data. Define a Markov chain that progressively adds Gaussian noise over $T$ steps:
