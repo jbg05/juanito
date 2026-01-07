@@ -206,6 +206,61 @@ where $x_t = \sqrt{\bar{\alpha}_t} x_0 + \sqrt{1-\bar{\alpha}_t} \epsilon$ and $
 
 **Sampling:** Start with $x_T \sim \mathcal{N}(0, \mathbf{I})$. For $t = T, \ldots, 1$, iteratively denoise using learned transitions.
 
+### Learning the Noise Schedule via SNR
+
+So far we've treated $\alpha_t$ as fixed hyperparameters. But we can also learn them! The key insight is to reparameterize everything in terms of the **signal-to-noise ratio (SNR)**.
+
+Recall from earlier that $q(x_t \mid x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t} x_0, (1-\bar{\alpha}_t) \mathbf{I})$. The signal-to-noise ratio at timestep $t$ is:
+
+$$
+\text{SNR}(t) = \frac{\bar{\alpha}_t}{1 - \bar{\alpha}_t}
+$$
+
+This ratio tells us how much signal vs. noise is present at timestep $t$. High SNR means mostly signal, low SNR means mostly noise.
+
+Now here's the magic: we can rewrite our objective in terms of SNR. Starting from the KL minimization objective (derived from equations 101-108 in paper):
+
+$$
+\frac{1}{2\sigma_q^2(t)} \frac{\bar{\alpha}_{t-1}(1-\alpha_t)^2}{(1-\bar{\alpha}_t)^2} \| \hat{x}_\theta(x_t, t) - x_0 \|_2^2
+$$
+
+Substituting our variance formula $\sigma_q^2(t) = \frac{(1-\alpha_t)(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t}$ and simplifying (see equations 102-108):
+
+$$
+\begin{align}
+&= \frac{1}{2} \left( \frac{\bar{\alpha}_{t-1}}{1-\bar{\alpha}_{t-1}} - \frac{\bar{\alpha}_t}{1-\bar{\alpha}_t} \right) \| \hat{x}_\theta(x_t, t) - x_0 \|_2^2 \\
+&= \frac{1}{2} \left( \text{SNR}(t-1) - \text{SNR}(t) \right) \| \hat{x}_\theta(x_t, t) - x_0 \|_2^2
+\end{align}
+$$
+
+This is beautiful! The objective at each timestep is weighted by the *change* in SNR between consecutive steps. As we go forward in the diffusion process, SNR decreases (more noise), so $\text{SNR}(t-1) - \text{SNR}(t)$ is positive.
+
+**Learning the schedule.** Instead of fixing $\alpha_t$ values, we can parameterize:
+
+$$
+\text{SNR}(t) = \exp(-\omega_\eta(t))
+$$
+
+where $\omega_\eta(t)$ is a monotonically increasing neural network with parameters $\eta$. As $t$ increases, $\omega_\eta(t)$ increases, so $\text{SNR}(t)$ decreases (more noise over time). This gives us:
+
+$$
+\frac{\bar{\alpha}_t}{1-\bar{\alpha}_t} = \exp(-\omega_\eta(t))
+$$
+
+Solving for $\bar{\alpha}_t$:
+
+$$
+\bar{\alpha}_t = \text{sigmoid}(-\omega_\eta(t))
+$$
+
+And similarly:
+
+$$
+1 - \bar{\alpha}_t = \text{sigmoid}(\omega_\eta(t))
+$$
+
+Now we jointly optimize both the denoising network $\theta$ and the noise schedule $\eta$! The network $\omega_\eta(t)$ learns the optimal rate at which to add noise at each timestep.
+
 ---
 
 *See [Understanding Diffusion Models: A Unified Perspective](https://arxiv.org/pdf/2208.11970), [Lilian Weng's blog](https://lilianweng.github.io/posts/2021-07-11-diffusion-models/), and [DDPM](https://arxiv.org/abs/2006.11239) for full derivations and further reading.*
