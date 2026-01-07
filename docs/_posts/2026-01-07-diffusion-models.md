@@ -44,7 +44,7 @@ $$
 
 KL divergence is always $\geq 0$, so we've got ourselves a legit lower bound. The tighter our $q_\phi$ approximates the true posterior, the closer we get to the actual evidence.
 
-**VAE breakdown.** Let's split up the ELBO into something more intuitive:
+**VAE breakdown.** Split ELBO into two pieces:
 
 $$
 \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(x,z)}{q_\phi(z \mid x)} \right] = \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p_\theta(x \mid z) p(z)}{q_\phi(z \mid x)} \right]
@@ -65,7 +65,7 @@ $$
 
 ### Hierarchical VAE (Markovian)
 
-Instead of one latent, chain together $T$ of them in a Markov structure. Joint distribution and posterior look like:
+What if instead of one latent, we chain together $T$ of them? Joint distribution and posterior:
 
 $$
 p(x, z_{1:T}) = p(z_T) p_\theta(x \mid z_1) \prod_{t=2}^T p_\theta(z_{t-1} \mid z_t)
@@ -85,29 +85,29 @@ $$
 
 ## Variational Diffusion Models
 
-A VDM is a Markovian HVAE with three restrictions: (1) latent dimension equals data dimension, (2) encoder structure at each timestep is fixed as a linear Gaussian, (3) Gaussian parameters vary over time such that $p(x_T)$ is standard Gaussian.
+Now we're ready for diffusion. Take the HVAE and add three restrictions: (1) latent dim = data dim, (2) encoder at each timestep is fixed linear Gaussian (no learning!), (3) Gaussian params vary so $p(x_T)$ becomes standard normal.
 
-Notation: $x_t$ where $t=0$ is data, $t \in [1,T]$ are latents.
+Notation switch: $x_t$ where $t=0$ is data, $t \in [1,T]$ are latents.
 
-**Forward process:**
+**Forward process (adding noise):**
 
 $$
 q(x_{1:T} \mid x_0) = \prod_{t=1}^T q(x_t \mid x_{t-1})
 $$
 
-where encoder transitions are fixed:
+where transitions are fixed:
 
 $$
 q(x_t \mid x_{t-1}) = \mathcal{N}(x_t; \sqrt{\alpha_t} x_{t-1}, (1-\alpha_t)\mathbf{I})
 $$
 
-**Reverse process (joint):**
+**Reverse process (learning to denoise):**
 
 $$
 p(x_{0:T}) = p(x_T) \prod_{t=1}^T p_\theta(x_{t-1} \mid x_t), \quad p(x_T) = \mathcal{N}(0, \mathbf{I})
 $$
 
-**ELBO derivation.** Start from log evidence:
+**ELBO derivation.** Same game as before - start from log evidence:
 
 $$
 \begin{align}
@@ -124,13 +124,13 @@ $$
 = \mathbb{E}_{q(x_{1:T} \mid x_0)} \left[ \log \frac{p(x_T) p_\theta(x_0 \mid x_1) \prod_{t=2}^T p_\theta(x_{t-1} \mid x_t)}{\prod_{t=1}^T q(x_t \mid x_{t-1})} \right]
 $$
 
-Key insight: rewrite encoder $q(x_t \mid x_{t-1})$ using Bayes rule to condition on $x_0$:
+Key trick: rewrite encoder $q(x_t \mid x_{t-1})$ using Bayes to condition on $x_0$:
 
 $$
 q(x_t \mid x_{t-1}, x_0) = \frac{q(x_{t-1} \mid x_t, x_0) q(x_t \mid x_0)}{q(x_{t-1} \mid x_0)}
 $$
 
-After algebraic manipulations (full derivation in [Sohl-Dickstein et al.](https://arxiv.org/abs/2006.11239) and [this paper](https://arxiv.org/pdf/2208.11970)), we get:
+After algebra (full derivation in [Sohl-Dickstein et al.](https://arxiv.org/abs/2006.11239) and [this paper](https://arxiv.org/pdf/2208.11970)):
 
 $$
 \begin{align}
@@ -140,19 +140,19 @@ $$
 \end{align}
 $$
 
-Three terms: (1) reconstruction, (2) prior matching (typically zero with good schedule), (3) denoising matching - learned reverse $p_\theta(x_{t-1} \mid x_t)$ matches ground-truth $q(x_{t-1} \mid x_t, x_0)$.
+Three terms: (1) reconstruction, (2) prior matching (zero with good schedule), (3) denoising matching - learned reverse $p_\theta(x_{t-1} \mid x_t)$ needs to match ground-truth $q(x_{t-1} \mid x_t, x_0)$.
 
-Lower variance than standard HVAE: each expectation over at most one random variable at a time.
+Variance is lower than standard HVAE since each expectation is over at most one random variable.
 
 ### Computing the Ground Truth Posterior
 
-Need to derive $q(x_t \mid x_0)$ and $q(x_{t-1} \mid x_t, x_0)$ to make denoising term tractable. Using reparameterization:
+To make the denoising term tractable, need $q(x_t \mid x_0)$ and $q(x_{t-1} \mid x_t, x_0)$. Use reparameterization:
 
 $$
 x_t = \sqrt{\alpha_t} x_{t-1} + \sqrt{1-\alpha_t} \epsilon_{t-1}, \quad \epsilon_{t-1} \sim \mathcal{N}(0, \mathbf{I})
 $$
 
-Recursively applying this (sum of Gaussians is Gaussian):
+Apply recursively (sum of Gaussians is Gaussian):
 
 $$
 \begin{align}
@@ -170,7 +170,7 @@ $$
 q(x_t \mid x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t} x_0, (1-\bar{\alpha}_t) \mathbf{I})
 $$
 
-For $q(x_{t-1} \mid x_t, x_0)$, use Bayes rule (derivation in paper):
+For the reverse direction $q(x_{t-1} \mid x_t, x_0)$, use Bayes (derivation in paper):
 
 $$
 q(x_{t-1} \mid x_t, x_0) = \mathcal{N}(x_{t-1}; \mu_q(x_t, x_0), \sigma_q^2(t) \mathbf{I})
@@ -188,15 +188,15 @@ $$
 
 ### Simplifying the Objective
 
-Since variances match, minimizing $D_{\text{KL}}(q(x_{t-1} \mid x_t, x_0) \| p_\theta(x_{t-1} \mid x_t))$ reduces to matching means. Set $p_\theta(x_{t-1} \mid x_t) = \mathcal{N}(x_{t-1}; \mu_\theta(x_t, t), \sigma_q^2(t) \mathbf{I})$ and match $\mu_\theta$ to $\mu_q$.
+Variances match, so minimizing KL reduces to matching means. Set $p_\theta(x_{t-1} \mid x_t) = \mathcal{N}(x_{t-1}; \mu_\theta(x_t, t), \sigma_q^2(t) \mathbf{I})$ and match $\mu_\theta$ to $\mu_q$.
 
-Can parameterize $\mu_\theta$ by predicting the noise $\epsilon$ that was added:
+Parameterize $\mu_\theta$ by predicting noise $\epsilon$:
 
 $$
 \mu_\theta(x_t, t) = \frac{\sqrt{\bar{\alpha}_{t-1}}(1-\alpha_t)}{1-\bar{\alpha}_t} \hat{x}_\theta(x_t, t) + \frac{\sqrt{\alpha_t}(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t} x_t
 $$
 
-where $\hat{x}_\theta(x_t, t)$ predicts $x_0$ from noisy $x_t$. Equivalently, train a network $\epsilon_\theta(x_t, t)$ to predict the noise:
+where $\hat{x}_\theta(x_t, t)$ predicts $x_0$ from noisy $x_t$. Final objective:
 
 $$
 \min_\theta \mathbb{E}_{t, x_0, \epsilon} \left[ \| \epsilon - \epsilon_\theta(x_t, t) \|_2^2 \right]
@@ -208,7 +208,7 @@ where $x_t = \sqrt{\bar{\alpha}_t} x_0 + \sqrt{1-\bar{\alpha}_t} \epsilon$ and $
 
 ### Learning the Noise Schedule via SNR
 
-So far $\alpha_t$ has been fixed hyperparameters. But we can learn them! Key insight: reparameterize everything in terms of **signal-to-noise ratio (SNR)**.
+So far $\alpha_t$ has been fixed. But what if we learn it too? Key insight: reparameterize via **signal-to-noise ratio (SNR)**.
 
 Recall $q(x_t \mid x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t} x_0, (1-\bar{\alpha}_t) \mathbf{I})$. SNR at timestep $t$:
 
@@ -218,13 +218,13 @@ $$
 
 High SNR = mostly signal, low SNR = mostly noise.
 
-Here's the magic: rewrite objective in terms of SNR. Starting from KL minimization (see paper eqs 101-108):
+Rewrite objective in terms of SNR. Starting from KL minimization (see paper eqs 101-108):
 
 $$
 \frac{1}{2\sigma_q^2(t)} \frac{\bar{\alpha}_{t-1}(1-\alpha_t)^2}{(1-\bar{\alpha}_t)^2} \| \hat{x}_\theta(x_t, t) - x_0 \|_2^2
 $$
 
-Substituting our variance formula $\sigma_q^2(t) = \frac{(1-\alpha_t)(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t}$ and simplifying (see equations 102-108):
+Substitute $\sigma_q^2(t) = \frac{(1-\alpha_t)(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t}$ and simplify:
 
 $$
 \begin{align}
@@ -233,15 +233,15 @@ $$
 \end{align}
 $$
 
-Beautiful! Objective at each timestep gets weighted by the *change* in SNR. Going forward means SNR decreases (more noise), so $\text{SNR}(t-1) - \text{SNR}(t)$ stays positive.
+Beautiful! Objective gets weighted by *change* in SNR. Going forward decreases SNR (more noise), so $\text{SNR}(t-1) - \text{SNR}(t)$ stays positive.
 
-**Learning the schedule.** Instead of fixing $\alpha_t$ values, we can parameterize:
+**Learning the schedule.** Parameterize:
 
 $$
 \text{SNR}(t) = \exp(-\omega_\eta(t))
 $$
 
-where $\omega_\eta(t)$ is a monotonically increasing network with params $\eta$. As $t$ goes up, $\omega_\eta(t)$ goes up, so $\text{SNR}(t)$ goes down (more noise). Then:
+where $\omega_\eta(t)$ is monotonically increasing network with params $\eta$. As $t$ goes up, $\omega_\eta(t)$ goes up, so $\text{SNR}(t)$ goes down. Then:
 
 $$
 \frac{\bar{\alpha}_t}{1-\bar{\alpha}_t} = \exp(-\omega_\eta(t))
@@ -253,72 +253,64 @@ $$
 \bar{\alpha}_t = \text{sigmoid}(-\omega_\eta(t))
 $$
 
-And similarly:
-
 $$
 1 - \bar{\alpha}_t = \text{sigmoid}(\omega_\eta(t))
 $$
 
-Now jointly optimize both denoising network $\theta$ and noise schedule $\eta$! Network $\omega_\eta(t)$ learns optimal noise rate at each timestep.
+Now jointly optimize denoising network $\theta$ and noise schedule $\eta$!
 
-### Three Equivalent Interpretations
-
-Here's something cool: three totally different ways to think about what a VDM learns, all mathematically equivalent! We've been predicting clean image $x_0$ from noisy $x_t$, but same network can be:
-
-1. **Predicting the original image** $x_0$ (what we've done)
-2. **Predicting the noise** $\epsilon_0$ added to create $x_t$
-3. **Predicting the score** $\nabla_{x_t} \log p(x_t)$ (gradient of log density)
-
-All three are the same model, different lens.
+### Three Ways to Train a Diffusion Model
 
 <details>
-<summary><b>Click to expand: Full mathematical derivation</b></summary>
+<summary><b>Optional: Three equivalent parameterizations</b></summary>
 
-**Interpretation 1: Predicting the noise $\epsilon_0$**
+Turns out there are three mathematically equivalent ways to train the same model. We've been predicting clean $x_0$, but can also predict noise $\epsilon_0$ or score $\nabla_{x_t} \log p(x_t)$.
 
-Rearrange how we express $x_0$ in terms of $x_t$. From forward process:
+**1. Predicting noise $\epsilon_0$**
+
+From forward process:
 
 $$
 x_t = \sqrt{\bar{\alpha}_t} x_0 + \sqrt{1-\bar{\alpha}_t} \epsilon_0
 $$
 
-Solving for $x_0$:
+Solve for $x_0$:
 
 $$
 x_0 = \frac{x_t - \sqrt{1-\bar{\alpha}_t} \epsilon_0}{\sqrt{\bar{\alpha}_t}}
 $$
 
-Plug into ground-truth denoising mean $\mu_q(x_t, x_0)$. After substitution (skipping algebra):
+Plug into $\mu_q(x_t, x_0)$ (skipping algebra):
 
 $$
 \mu_q(x_t, x_0) = \frac{1}{\sqrt{\alpha_t}} x_t - \frac{1-\alpha_t}{\sqrt{1-\bar{\alpha}_t}\sqrt{\alpha_t}} \epsilon_0
 $$
 
-So instead of predicting $x_0$ directly, we can train a network $\hat{\epsilon}_\theta(x_t, t)$ to predict the noise:
+Train network $\hat{\epsilon}_\theta(x_t, t)$ to predict noise:
 
 $$
 \mu_\theta(x_t, t) = \frac{1}{\sqrt{\alpha_t}} x_t - \frac{1-\alpha_t}{\sqrt{1-\bar{\alpha}_t}\sqrt{\alpha_t}} \hat{\epsilon}_\theta(x_t, t)
 $$
 
-The optimization becomes:
+Objective:
 
 $$
 \min_\theta \mathbb{E}_{t, x_0, \epsilon_0} \left[ \| \epsilon_0 - \hat{\epsilon}_\theta(x_t, t) \|_2^2 \right]
 $$
 
-Noise prediction often works better empirically! Network learns "what noise was added" vs "what clean image looks like."
+Noise prediction works better empirically!
 
-**Interpretation 2: Predicting the score function $\nabla_{x_t} \log p(x_t)$**
+**2. Predicting score $\nabla_{x_t} \log p(x_t)$**
 
-**Score function** $\nabla_{x_t} \log p(x_t)$ = direction in data space that increases log probability most. Arrow pointing "uphill" toward likely images.
+Score function = direction that increases log prob. Arrow pointing "uphill" toward likely images.
 
-**Tweedie's Formula** (classic empirical Bayes result) connects posterior mean to score. For Gaussian $z \sim \mathcal{N}(z; \mu, \Sigma)$:
+**Tweedie's Formula** (empirical Bayes) connects posterior mean to score. For Gaussian $z \sim \mathcal{N}(z; \mu, \Sigma)$:
 
 $$
 \mathbb{E}[\mu \mid z] = z + \Sigma \nabla_z \log p(z)
 $$
 
-Apply to forward process $q(x_t \mid x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t} x_0, (1-\bar{\alpha}_t) \mathbf{I})$:
+Apply to $q(x_t \mid x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t} x_0, (1-\bar{\alpha}_t) \mathbf{I})$:
 
 $$
 \mathbb{E}[\mu_{x_t} \mid x_t] = x_t + (1-\bar{\alpha}_t) \nabla_{x_t} \log p(x_t)
@@ -334,27 +326,25 @@ $$
 x_0 = \frac{x_t + (1-\bar{\alpha}_t) \nabla_{x_t} \log p(x_t)}{\sqrt{\bar{\alpha}_t}}
 $$
 
-Plug this back into $\mu_q$ and simplify:
+Plug into $\mu_q$:
 
 $$
 \mu_q(x_t, x_0) = \frac{1}{\sqrt{\alpha_t}} x_t + \frac{1-\alpha_t}{\sqrt{\alpha_t}} \nabla_{x_t} \log p(x_t)
 $$
 
-So we can also train a network $s_\theta(x_t, t)$ to predict the score:
+Train network $s_\theta(x_t, t)$ to predict score:
 
 $$
 \mu_\theta(x_t, t) = \frac{1}{\sqrt{\alpha_t}} x_t + \frac{1-\alpha_t}{\sqrt{\alpha_t}} s_\theta(x_t, t)
 $$
 
-Objective becomes:
+Objective:
 
 $$
 \min_\theta \mathbb{E}_{t, x_0} \left[ \| \nabla_{x_t} \log p(x_t) - s_\theta(x_t, t) \|_2^2 \right]
 $$
 
-**Connection between noise and score**
-
-Notice something beautiful: combining our expressions for $x_0$ from interpretations 1 and 2:
+**Connection:** Combine expressions for $x_0$:
 
 $$
 \frac{x_t - \sqrt{1-\bar{\alpha}_t} \epsilon_0}{\sqrt{\bar{\alpha}_t}} = \frac{x_t + (1-\bar{\alpha}_t) \nabla_{x_t} \log p(x_t)}{\sqrt{\bar{\alpha}_t}}
@@ -366,15 +356,14 @@ $$
 \nabla_{x_t} \log p(x_t) = -\frac{1}{\sqrt{1-\bar{\alpha}_t}} \epsilon_0
 $$
 
-Score and noise differ by just a scaling factor! Score points opposite to noise (makes sense - noise corrupts, score points toward clean).
+Score and noise differ by scaling! Score points opposite to noise (noise corrupts, score points toward clean).
 
-Learning to denoise = learning the score. This connection to **score-based models** is why diffusion works so well.
+Learning to denoise = learning the score. This connects diffusion to **score-based models**.
 
 </details>
 
-**Why it matters:** Most implementations predict noise $\epsilon_0$ (trains more stably). But score interpretation connects diffusion to score matching/Langevin dynamics and gives intuition: model learns which direction moves toward "realistic" images.
+Most implementations predict noise $\epsilon_0$ (trains more stably). But score interpretation connects to score matching/Langevin dynamics and gives intuition: model learns direction toward "realistic" images.
 
 ---
 
 *See [Understanding Diffusion Models: A Unified Perspective](https://arxiv.org/pdf/2208.11970), [Lilian Weng's blog](https://lilianweng.github.io/posts/2021-07-11-diffusion-models/), and [DDPM](https://arxiv.org/abs/2006.11239) for full derivations and further reading.*
-
