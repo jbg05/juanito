@@ -8,8 +8,6 @@ toc_sticky: true
 math: true
 ---
 
-*Inspired by [Understanding Diffusion Models: A Unified Perspective](https://arxiv.org/pdf/2208.11970), [What are Diffusion Models?](https://lilianweng.github.io/posts/2021-07-11-diffusion-models/), and [Denoising Diffusion Probabilistic Models](https://arxiv.org/abs/2006.11239).*
-
 ## Background: ELBO and VAE
 
 Say we're modeling data $x$ using some latent variable $z$ through joint $p(x,z)$. Want to compute $p(x)$? Two options:
@@ -132,7 +130,7 @@ $$
 q(x_t \mid x_{t-1}, x_0) = \frac{q(x_{t-1} \mid x_t, x_0) q(x_t \mid x_0)}{q(x_{t-1} \mid x_0)}
 $$
 
-After algebraic manipulations (see paper), we get:
+After algebraic manipulations (full derivation in [Sohl-Dickstein et al.](https://arxiv.org/abs/2006.11239) and [this paper](https://arxiv.org/pdf/2208.11970)), we get:
 
 $$
 \begin{align}
@@ -142,19 +140,73 @@ $$
 \end{align}
 $$
 
-Three terms:
+Three terms: (1) reconstruction, (2) prior matching (typically zero with good schedule), (3) denoising matching - learned reverse $p_\theta(x_{t-1} \mid x_t)$ matches ground-truth $q(x_{t-1} \mid x_t, x_0)$.
 
-1. **Reconstruction:** $\mathbb{E}_{q(x_1 \mid x_0)}[\log p_\theta(x_0 \mid x_1)]$ - decode from first latent.
+Lower variance than standard HVAE: each expectation over at most one random variable at a time.
 
-2. **Prior matching:** $D_{\text{KL}}(q(x_T \mid x_0) \| p(x_T))$ - final latent should be Gaussian (typically zero with good schedule).
+### Computing the Ground Truth Posterior
 
-3. **Denoising matching:** $\sum_{t=2}^T \mathbb{E}_{q(x_{t-1}, x_{t+1} \mid x_0)} [D_{\text{KL}}(q(x_{t-1} \mid x_t, x_0) \| p_\theta(x_{t-1} \mid x_t))]$ - learned reverse step $p_\theta(x_{t-1} \mid x_t)$ matches ground-truth denoising step $q(x_{t-1} \mid x_t, x_0)$. Since $q(x_{t-1} \mid x_t, x_0)$ has access to clean $x_0$, it defines how to denoise $x_t$ given what $x_0$ should be.
+Need to derive $q(x_t \mid x_0)$ and $q(x_{t-1} \mid x_t, x_0)$ to make denoising term tractable. Using reparameterization:
 
-Lower variance than standard HVAE derivation: each expectation is over at most one random variable at a time.
+$$
+x_t = \sqrt{\alpha_t} x_{t-1} + \sqrt{1-\alpha_t} \epsilon_{t-1}, \quad \epsilon_{t-1} \sim \mathcal{N}(0, \mathbf{I})
+$$
+
+Recursively applying this (sum of Gaussians is Gaussian):
+
+$$
+\begin{align}
+x_t &= \sqrt{\alpha_t} x_{t-1} + \sqrt{1-\alpha_t} \epsilon_{t-1}^* \\
+&= \sqrt{\alpha_t} (\sqrt{\alpha_{t-1}} x_{t-2} + \sqrt{1-\alpha_{t-1}} \epsilon_{t-2}^*) + \sqrt{1-\alpha_t} \epsilon_{t-1}^* \\
+&= \sqrt{\alpha_t \alpha_{t-1}} x_{t-2} + \sqrt{\alpha_t - \alpha_t \alpha_{t-1}} \epsilon_{t-2}^* + \sqrt{1-\alpha_t} \epsilon_{t-1}^* \\
+&= \cdots \\
+&= \sqrt{\bar{\alpha}_t} x_0 + \sqrt{1-\bar{\alpha}_t} \epsilon_0
+\end{align}
+$$
+
+where $\bar{\alpha}_t = \prod_{i=1}^t \alpha_i$. Thus:
+
+$$
+q(x_t \mid x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t} x_0, (1-\bar{\alpha}_t) \mathbf{I})
+$$
+
+For $q(x_{t-1} \mid x_t, x_0)$, use Bayes rule (derivation in paper):
+
+$$
+q(x_{t-1} \mid x_t, x_0) = \mathcal{N}(x_{t-1}; \mu_q(x_t, x_0), \sigma_q^2(t) \mathbf{I})
+$$
+
+where
+
+$$
+\mu_q(x_t, x_0) = \frac{\sqrt{\bar{\alpha}_{t-1}}(1-\alpha_t)}{1-\bar{\alpha}_t} x_0 + \frac{\sqrt{\alpha_t}(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t} x_t
+$$
+
+$$
+\sigma_q^2(t) = \frac{(1-\alpha_t)(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t}
+$$
+
+### Simplifying the Objective
+
+Since variances match, minimizing $D_{\text{KL}}(q(x_{t-1} \mid x_t, x_0) \| p_\theta(x_{t-1} \mid x_t))$ reduces to matching means. Set $p_\theta(x_{t-1} \mid x_t) = \mathcal{N}(x_{t-1}; \mu_\theta(x_t, t), \sigma_q^2(t) \mathbf{I})$ and match $\mu_\theta$ to $\mu_q$.
+
+Can parameterize $\mu_\theta$ by predicting the noise $\epsilon$ that was added:
+
+$$
+\mu_\theta(x_t, t) = \frac{\sqrt{\bar{\alpha}_{t-1}}(1-\alpha_t)}{1-\bar{\alpha}_t} \hat{x}_\theta(x_t, t) + \frac{\sqrt{\alpha_t}(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t} x_t
+$$
+
+where $\hat{x}_\theta(x_t, t)$ predicts $x_0$ from noisy $x_t$. Equivalently, train a network $\epsilon_\theta(x_t, t)$ to predict the noise:
+
+$$
+\min_\theta \mathbb{E}_{t, x_0, \epsilon} \left[ \| \epsilon - \epsilon_\theta(x_t, t) \|_2^2 \right]
+$$
+
+where $x_t = \sqrt{\bar{\alpha}_t} x_0 + \sqrt{1-\bar{\alpha}_t} \epsilon$ and $t \sim \mathcal{U}(1, T)$.
+
+**Sampling:** Start $x_T \sim \mathcal{N}(0, \mathbf{I})$. For $t = T, \ldots, 1$, iteratively denoise using learned $p_\theta(x_{t-1} \mid x_t)$.
 
 ---
 
-## References
-
-Based on "Understanding Diffusion Models: A Unified Perspective" (arXiv:2208.11970) and related work.
+*See [Understanding Diffusion Models: A Unified Perspective](https://arxiv.org/pdf/2208.11970), [Lilian Weng's blog](https://lilianweng.github.io/posts/2021-07-11-diffusion-models/), and [DDPM](https://arxiv.org/abs/2006.11239) for full derivations and further reading.*
 
