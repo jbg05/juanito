@@ -83,6 +83,64 @@ $$
 
 ---
 
+## Variational Diffusion Models
+
+Here's where it gets cool. A **Variational Diffusion Model (VDM)** is basically just a Markovian HVAE with three specific choices that make everything work beautifully:
+
+1. **Latent dimension = data dimension.** No compression, latents $x_t$ have same shape as data $x_0$.
+
+2. **Encoder structure is fixed**, not learned. At each timestep, the encoder is a linear Gaussian centered at the previous timestep's output. Meaning we're just progressively adding noise in a predetermined way.
+
+3. **Variance schedule.** The Gaussian parameters evolve over time so that by the final timestep $T$, the distribution $p(x_T)$ is pure standard Gaussian noise.
+
+Since latent dimension matches data dimension, we can use unified notation: $x_t$ where $t=0$ is real data and $t \in [1,T]$ are noisy latent versions indexed by hierarchy depth.
+
+**Forward process (encoder).** The forward transitions are fixed Gaussians:
+
+$$
+q(x_t \mid x_{t-1}) = \mathcal{N}(x_t; \sqrt{\alpha_t} x_{t-1}, (1-\alpha_t)\mathbf{I})
+$$
+
+where $\alpha_t$ is a learnable (or fixed) coefficient controlling variance preservation. Different parameterizations work, but the key idea is we're progressively noisifying while keeping variance scale consistent. Full forward chain:
+
+$$
+q(x_{1:T} \mid x_0) = \prod_{t=1}^T q(x_t \mid x_{t-1})
+$$
+
+**Reverse process (decoder).** We learn $p_\theta(x_{t-1} \mid x_t)$ to denoise. The decoder reverses the noise:
+
+$$
+p(x_{0:T}) = p(x_T) \prod_{t=1}^T p_\theta(x_{t-1} \mid x_t)
+$$
+
+where $p(x_T) = \mathcal{N}(0, \mathbf{I})$ is standard Gaussian.
+
+**The ELBO.** Just like any HVAE, we maximize the ELBO. But here's the clever part: we can derive it in a way that reduces variance and gives better intuition. Starting from the log evidence and using Bayes rule on the encoder:
+
+$$
+q(x_t \mid x_{t-1}, x_0) = \frac{q(x_{t-1} \mid x_t, x_0) q(x_t \mid x_0)}{q(x_{t-1} \mid x_0)}
+$$
+
+After some algebra (equations 34-45 in your screenshots), the ELBO decomposes into three interpretable terms:
+
+$$
+\log p(x) \geq \underbrace{\mathbb{E}_{q(x_1 \mid x_0)}[\log p_\theta(x_0 \mid x_1)]}_{\text{reconstruction}} - \underbrace{D_{\text{KL}}(q(x_T \mid x_0) \| p(x_T))}_{\text{prior matching}} - \sum_{t=2}^T \underbrace{\mathbb{E}_{q(x_{t-1}, x_{t+1} \mid x_0)}[D_{\text{KL}}(q(x_t \mid x_{t-1}, x_0) \| p_\theta(x_{t-1} \mid x_t))]}_{\text{denoising matching}}
+$$
+
+**What each term does:**
+
+1. **Reconstruction term** - How well can we reconstruct $x_0$ from the first latent $x_1$? Just like vanilla VAE.
+
+2. **Prior matching term** - How close is our final noised state $q(x_T \mid x_0)$ to pure Gaussian $p(x_T)$? This is typically zero if we choose a good schedule.
+
+3. **Denoising matching term** - Here's the magic. For every intermediate timestep $t$, we're learning to denoise: the learned backward step $p_\theta(x_{t-1} \mid x_t)$ should match the tractable forward denoising step $q(x_{t-1} \mid x_t, x_0)$. The $q(x_{t-1} \mid x_t, x_0)$ acts as ground truth because it knows what the clean image $x_0$ looks like.
+
+This formulation has lower variance than the naive HVAE derivation because each expectation is over at most one random variable at a time, instead of two.
+
+**To sample:** Start with pure noise $x_T \sim \mathcal{N}(0, \mathbf{I})$ and iteratively denoise using learned transitions $p_\theta(x_{t-1} \mid x_t)$ for $T$ steps to generate a novel $x_0$.
+
+---
+
 ## References
 
 Based on "Understanding Diffusion Models: A Unified Perspective" (arXiv:2208.11970) and related work.
