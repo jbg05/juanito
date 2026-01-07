@@ -261,6 +261,119 @@ $$
 
 Now we jointly optimize both the denoising network $\theta$ and the noise schedule $\eta$! The network $\omega_\eta(t)$ learns the optimal rate at which to add noise at each timestep.
 
+### Three Equivalent Interpretations
+
+So here's something cool: turns out there are three totally different ways to think about what a VDM is learning, and they're all mathematically equivalent! We've been training a network to predict the original clean image $x_0$ from a noisy version $x_t$. But that same network can be reframed as:
+
+1. **Predicting the original image** $x_0$ (what we've been doing)
+2. **Predicting the noise** $\epsilon_0$ that was added to create $x_t$
+3. **Predicting the score function** $\nabla_{x_t} \log p(x_t)$ (gradient of log density)
+
+All three give you the same model, just different perspectives! Let me break down why this matters.
+
+<details>
+<summary><b>Click to expand: Full mathematical derivation</b></summary>
+
+**Interpretation 1: Predicting the noise $\epsilon_0$**
+
+Start by rearranging how we express $x_0$ in terms of $x_t$. Remember from our forward process that:
+
+$$
+x_t = \sqrt{\bar{\alpha}_t} x_0 + \sqrt{1-\bar{\alpha}_t} \epsilon_0
+$$
+
+Solving for $x_0$:
+
+$$
+x_0 = \frac{x_t - \sqrt{1-\bar{\alpha}_t} \epsilon_0}{\sqrt{\bar{\alpha}_t}}
+$$
+
+Now plug this into our ground-truth denoising mean $\mu_q(x_t, x_0)$ from before. After substitution and simplification (skipping the algebra), we get:
+
+$$
+\mu_q(x_t, x_0) = \frac{1}{\sqrt{\alpha_t}} x_t - \frac{1-\alpha_t}{\sqrt{1-\bar{\alpha}_t}\sqrt{\alpha_t}} \epsilon_0
+$$
+
+So instead of predicting $x_0$ directly, we can train a network $\hat{\epsilon}_\theta(x_t, t)$ to predict the noise:
+
+$$
+\mu_\theta(x_t, t) = \frac{1}{\sqrt{\alpha_t}} x_t - \frac{1-\alpha_t}{\sqrt{1-\bar{\alpha}_t}\sqrt{\alpha_t}} \hat{\epsilon}_\theta(x_t, t)
+$$
+
+The optimization becomes:
+
+$$
+\min_\theta \mathbb{E}_{t, x_0, \epsilon_0} \left[ \| \epsilon_0 - \hat{\epsilon}_\theta(x_t, t) \|_2^2 \right]
+$$
+
+This noise prediction formulation often works better empirically! The network learns "what noise was added" rather than "what the clean image looks like."
+
+**Interpretation 2: Predicting the score function $\nabla_{x_t} \log p(x_t)$**
+
+Here's where it gets really interesting. The **score function** $\nabla_{x_t} \log p(x_t)$ tells us which direction in data space increases the log probability most. Think of it as an arrow pointing "uphill" toward more likely images.
+
+There's a classic result called **Tweedie's Formula** (used a lot in empirical Bayes) that connects the mean of a posterior to the score. For a Gaussian $z \sim \mathcal{N}(z; \mu, \Sigma)$, Tweedie says:
+
+$$
+\mathbb{E}[\mu \mid z] = z + \Sigma \nabla_z \log p(z)
+$$
+
+Applying this to our forward process $q(x_t \mid x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t} x_0, (1-\bar{\alpha}_t) \mathbf{I})$, we get:
+
+$$
+\mathbb{E}[\mu_{x_t} \mid x_t] = x_t + (1-\bar{\alpha}_t) \nabla_{x_t} \log p(x_t)
+$$
+
+where the true mean is $\mu_{x_t} = \sqrt{\bar{\alpha}_t} x_0$. Rearranging:
+
+$$
+\sqrt{\bar{\alpha}_t} x_0 = x_t + (1-\bar{\alpha}_t) \nabla_{x_t} \log p(x_t)
+$$
+
+$$
+x_0 = \frac{x_t + (1-\bar{\alpha}_t) \nabla_{x_t} \log p(x_t)}{\sqrt{\bar{\alpha}_t}}
+$$
+
+Plug this back into $\mu_q$ and simplify:
+
+$$
+\mu_q(x_t, x_0) = \frac{1}{\sqrt{\alpha_t}} x_t + \frac{1-\alpha_t}{\sqrt{\alpha_t}} \nabla_{x_t} \log p(x_t)
+$$
+
+So we can also train a network $s_\theta(x_t, t)$ to predict the score:
+
+$$
+\mu_\theta(x_t, t) = \frac{1}{\sqrt{\alpha_t}} x_t + \frac{1-\alpha_t}{\sqrt{\alpha_t}} s_\theta(x_t, t)
+$$
+
+Objective becomes:
+
+$$
+\min_\theta \mathbb{E}_{t, x_0} \left[ \| \nabla_{x_t} \log p(x_t) - s_\theta(x_t, t) \|_2^2 \right]
+$$
+
+**Connection between noise and score**
+
+Notice something beautiful: combining our expressions for $x_0$ from interpretations 1 and 2:
+
+$$
+\frac{x_t - \sqrt{1-\bar{\alpha}_t} \epsilon_0}{\sqrt{\bar{\alpha}_t}} = \frac{x_t + (1-\bar{\alpha}_t) \nabla_{x_t} \log p(x_t)}{\sqrt{\bar{\alpha}_t}}
+$$
+
+Rearranging:
+
+$$
+\nabla_{x_t} \log p(x_t) = -\frac{1}{\sqrt{1-\bar{\alpha}_t}} \epsilon_0
+$$
+
+The score function and source noise differ only by a constant scaling factor! The score points in the opposite direction of the noise (makes sense - noise corrupts images, score points toward cleaner ones).
+
+This means learning to denoise is *exactly the same* as learning the score function. This connection to **score-based models** is why diffusion models are so powerful.
+
+</details>
+
+**Why this matters:** In practice, most implementations predict the noise $\epsilon_0$ since it tends to train more stably. But understanding the score interpretation connects diffusion models to a whole other framework (score matching, Langevin dynamics) and gives us intuition: the model learns which direction to move in image space to make images more "realistic."
+
 ---
 
 *See [Understanding Diffusion Models: A Unified Perspective](https://arxiv.org/pdf/2208.11970), [Lilian Weng's blog](https://lilianweng.github.io/posts/2021-07-11-diffusion-models/), and [DDPM](https://arxiv.org/abs/2006.11239) for full derivations and further reading.*
