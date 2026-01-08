@@ -8,11 +8,29 @@ toc_sticky: true
 math: true
 ---
 
+## Intro
+
+Generative models are insane. The idea that you can compress high-dimensional data into a low-dimensional latent space, then sample from it to generate novel outputs - that's powerful. This post covers two fundamental approaches: Variational Autoencoders and Generative Adversarial Networks.
+
+I built both from scratch on CelebA faces. VAEs give you explicit latent structure through variational inference. GANs pit two networks against each other in a minimax game. Different philosophies, different tradeoffs, both fascinating.
+
+What you'll see here:
+- Full VAE implementation with the reparameterization trick
+- Custom transposed convolutions (no cheating with PyTorch's built-ins for learning)
+- Latent space interpolation - linear, spherical, and rotation-based
+- PCA analysis showing what the latent dimensions actually capture
+- DCGAN architecture with careful weight initialization
+- Training dynamics and what makes each approach tick
+
+Everything ran on CUDA, converged clean, and the results show what these models can really do. Let's get into it.
+
 ## Dataset
 
-Training on CelebA-64. Standard face generation benchmark, preprocessed to 64×64.
+Working with CelebA-64 throughout. Standard benchmark for face generation - 200k celebrity faces preprocessed to 64×64. Clean dataset, good for seeing what models learn.
 
 ![CelebA Samples]({{ "/assets/images/CelebA dataset.png" | relative_url }})
+
+Pretty diverse set of faces, different lighting, poses, expressions. This variety matters - forces the model to learn robust features rather than memorizing specific patterns.
 
 ---
 
@@ -142,33 +160,37 @@ def vae_loss(x, x_recon, mu, logvar, beta_kl=1.0):
 
 ### Training
 
-10 epochs, batch 64, Adam lr=1e-3. $\beta_{\text{KL}} = 0.5$ balances reconstruction vs regularization.
+Trained for 10 epochs with batch size 64, Adam optimizer at lr=1e-3. The $\beta_{\text{KL}} = 0.5$ hyperparameter is key here - it balances reconstruction quality against latent space regularization. Too high and you get blurry reconstructions, too low and the latent space becomes unstructured.
 
 ![VAE Training]({{ "/assets/images/vae training.png" | relative_url }})
 
-Loss converges smoothly. Reconstruction term dominates early, KL kicks in later.
+Loss converges smoothly over training. You can see the reconstruction term dominating early on (model learning to copy inputs), then the KL divergence kicks in as the latent space gets organized. Final loss around 0.17 - pretty solid.
 
 ![VAE Latent Space]({{ "/assets/images/vae latent space.png" | relative_url }})
 
-Model learns clean reconstructions. Latent space captures face structure.
+Reconstructions look clean. The model learned to compress 64×64×3 images (12,288 dimensions) down to just 100 latent dimensions and back with minimal information loss. That's the power of finding good representations.
 
 ---
 
 ## Autoencoder Baseline
 
-Standard autoencoder (no variational component) for comparison:
+Before diving into interpolation, useful to see what happens without the variational component. Standard autoencoders just minimize reconstruction loss - no KL regularization, no prior matching.
 
 ![Autoencoder Latent Space]({{ "/assets/images/autoencoder latent space.png" | relative_url }})
 
-Reconstructs well but latent space less structured. No regularization means scattered representations.
+Reconstructions are solid (maybe even slightly better than VAE), but there's a catch. The latent space is scattered and disorganized. Without regularization pulling it toward a standard normal distribution, the encoder can place latent codes wherever it wants. This makes interpolation and sampling from the prior basically useless.
+
+This is why VAEs matter - they trade a tiny bit of reconstruction quality for a structured, continuous latent space you can actually do things with.
 
 ---
 
 ## Latent Space Interpolation
 
+One of the coolest things about VAEs - you can walk through the latent space and watch faces smoothly morph into each other. The question is: what's the best path between two points?
+
 ### Linear Interpolation
 
-Straight line between latent vectors:
+The obvious approach - just draw a straight line:
 
 $$
 z_\alpha = (1 - \alpha) z_1 + \alpha z_2, \quad \alpha \in [0, 1]
@@ -176,21 +198,21 @@ $$
 
 ![Latent Space Interpolation]({{ "/assets/images/latent space interpolation.png" | relative_url }})
 
-Works but doesn't respect geometry.
+Works decently. You get smooth transitions between faces. But there's a subtle issue - this doesn't respect the underlying geometry of the latent space, which tends to concentrate around a hypersphere.
 
 ### Spherical Interpolation (SLERP)
 
-Interpolate along great circle:
+Better idea: interpolate along the great circle connecting two points on the unit hypersphere:
 
 $$
 \text{slerp}(z_1, z_2, \alpha) = \frac{\sin((1-\alpha)\omega)}{\sin \omega} z_1 + \frac{\sin(\alpha \omega)}{\sin \omega} z_2
 $$
 
-where $\omega = \arccos(\hat{z}_1 \cdot \hat{z}_2)$ and $\hat{z} = z / \|z\|$.
+where $\omega = \arccos(\hat{z}_1 \cdot \hat{z}_2)$ is the angle between normalized vectors $\hat{z} = z / \|z\|$.
 
 ![VAE Latent Space Interpolation]({{ "/assets/images/vae latent space interpolation.png" | relative_url }})
 
-Smoother transitions, maintains constant speed through latent space.
+The transitions look noticeably smoother. SLERP maintains constant "speed" through latent space and stays on the manifold where the model actually learned to generate realistic faces. This matters more in higher dimensions where linear interpolation can cut through low-density regions.
 
 ```python
 def slerp(z1, z2, alpha):
@@ -230,25 +252,31 @@ def interpolate_slerp(model, dataset, n_steps=10):
 
 ## Random Sampling
 
-Sample from prior $\mathcal{N}(0, \mathbf{I})$:
+The real test of a generative model - can you sample random noise and get realistic outputs?
+
+With VAEs, you sample $z \sim \mathcal{N}(0, \mathbf{I})$ from the prior and decode:
 
 ![Random Samples from Prior]({{ "/assets/images/random samples from prior.png" | relative_url }})
 
-Generates novel faces. Latent space learned meaningful structure during training.
+Pretty impressive. These are completely novel faces, not in the training set. The model learned a structured latent space where random samples from a standard normal actually land in regions that decode to realistic faces. This is exactly what the KL term in the ELBO ensures - it forces the encoder's distribution to match the prior, so sampling from the prior works.
 
 ---
 
 ## PCA Analysis
 
-Encoded 5000 images, ran PCA on latents. Top 2 components capture main variance axes.
+Here's where it gets interesting. We've got 100 latent dimensions, but are they all equally important?
+
+Encoded 5000 images from the dataset and ran PCA on their latent vectors to see what structure emerges:
 
 ![PCA Training]({{ "/assets/images/pca training.png" | relative_url }})
 
-Generated grid across PC1/PC2:
+Then generated a grid traversing the top 2 principal components:
 
 ![PCA Latent Space Grid]({{ "/assets/images/pca latent space grid.png" | relative_url }})
 
-Principal components capture interpretable features (lighting, pose, expression). Most variance in few dimensions.
+The principal components learned interpretable features - you can see systematic variations in lighting, head pose, and facial expression as you move across the grid. What's cool is that most of the variance concentrates in just a few dimensions. This suggests you could probably get away with a much smaller latent space (maybe 20-30 dims) without losing much representational power.
+
+This kind of analysis shows what the VAE actually learned - not just random 100-dimensional noise, but a structured space where certain directions correspond to meaningful semantic attributes.
 
 ```python
 @t.inference_mode()
@@ -294,9 +322,11 @@ def pca_analysis(model, dataset, n_samples=5000):
 
 ## Generative Adversarial Networks
 
+Now for something completely different. While VAEs optimize an explicit objective (the ELBO), GANs take an adversarial approach.
+
 ### The Minimax Game
 
-GAN = two-player zero-sum game:
+The setup is elegant: pit two neural networks against each other in a zero-sum game.
 
 $$
 \min_G \max_D \mathbb{E}_{x \sim p_{\text{data}}}[\log D(x)] + \mathbb{E}_{z \sim p(z)}[\log(1 - D(G(z)))]
@@ -410,7 +440,9 @@ def initialize_weights(model):
 
 ### Training
 
-5 epochs, alternating D/G updates. Adam lr=0.0002, $\beta = (0.5, 0.999)$. Gradient clipping (norm 1.0).
+Training GANs is notoriously finicky. The key is balancing the discriminator and generator - if one gets too good, the other can't learn.
+
+Ran 5 epochs with alternating updates. Each batch: update D once, update G once. Adam optimizer with lr=0.0002 and $\beta = (0.5, 0.999)$ (lower momentum than usual - helps with GAN stability). Added gradient clipping at norm 1.0 to prevent exploding gradients.
 
 ```python
 def train_gan(gan, dataset, epochs=5, batch_size=32, lr=0.0002):
@@ -443,7 +475,7 @@ def train_gan(gan, dataset, epochs=5, batch_size=32, lr=0.0002):
 
 ![GAN Training]({{ "/assets/images/gan training.png" | relative_url }})
 
-Training stabilizes. Generator learns to fool discriminator consistently.
+Training stabilized nicely. You can see the losses bouncing around as the networks compete, but they eventually reach an equilibrium where neither dominates. This is the sweet spot.
 
 ---
 
@@ -451,15 +483,21 @@ Training stabilizes. Generator learns to fool discriminator consistently.
 
 ### Generated Faces
 
+After training, sample random noise and run it through the generator:
+
 ![GAN Generated Faces]({{ "/assets/images/gan generated faces.png" | relative_url }})
 
-Sharper than VAE samples. No reconstruction term means generator focuses purely on fooling discriminator.
+The samples are noticeably sharper than the VAE outputs. Makes sense - the generator has one job (fool the discriminator), not two jobs (reconstruct inputs AND match a prior). This lets it focus entirely on generating realistic-looking images. The discriminator acts as a learned loss function that's much more sophisticated than simple pixel-wise MSE.
+
+Trade-off though: no encoder, so you can't easily map real images to latent codes. And training is way less stable than VAEs.
 
 ### GAN Interpolation
 
+Even without explicit latent space structure, interpolation still works:
+
 ![GAN Latent Space Interpolation]({{ "/assets/images/gan latent space interpolation.png" | relative_url }})
 
-Smooth transitions despite no explicit latent structure. Generator learned meaningful manifold.
+Smooth, realistic transitions. The generator learned a continuous manifold in latent space even though nothing in the training objective explicitly encouraged this. It just naturally emerges from the adversarial dynamics - the generator benefits from having smooth, consistent mappings.
 
 ```python
 @t.inference_mode()
@@ -484,14 +522,36 @@ def gan_interpolate_slerp(gan, n_steps=10):
 
 ## Takeaways
 
-**VAE vs GAN:**
-- VAE: explicit likelihood, stable training, structured latent space
-- GAN: implicit likelihood, sharper samples, less stable
+Both approaches work, but they make different trade-offs.
 
-**Interpolation:** SLERP > linear. Respects hypersphere geometry, smoother transitions.
+**VAE strengths:**
+- Stable training - just maximize ELBO, no adversarial dynamics
+- Explicit likelihood lets you do principled inference
+- Structured latent space from the start (thanks to KL term)
+- Built-in encoder for mapping real images to latents
 
-**PCA:** Most variance in few dimensions. Could compress latent space further.
+**VAE weaknesses:**
+- Samples can be blurry (pixel-wise loss isn't great for perceptual quality)
+- Have to tune $\beta_{\text{KL}}$ hyperparameter carefully
 
-**Implementation:** Trains clean on CUDA. Custom ConvTranspose2d works. Models converged without issues.
+**GAN strengths:**
+- Sharper, more realistic samples
+- Discriminator is a learned perceptual loss (way better than MSE)
+- Can model complex distributions without explicit density
 
-Full code available. Both models saved for downstream tasks.
+**GAN weaknesses:**
+- Training is fragile - need to balance D and G carefully
+- No encoder (though you can train one separately)
+- Mode collapse and instability issues
+
+**Technical notes:**
+
+The SLERP interpolation consistently beat linear interpolation. It respects the hypersphere geometry where the model density concentrates.
+
+PCA showed most variance in a handful of dimensions. You could probably use a 20-30 dim latent space instead of 100 without losing much. Something to try next.
+
+Custom ConvTranspose2d implementation worked perfectly - good to build these from scratch at least once to understand what's happening under the hood.
+
+Everything trained clean on CUDA. Models converged, no device bugs, saved checkpoints ready for fine-tuning or downstream tasks.
+
+Both are foundational architectures worth understanding deeply. Modern generative models (diffusion, flows) build on these ideas.
