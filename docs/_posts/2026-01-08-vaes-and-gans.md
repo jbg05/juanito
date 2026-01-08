@@ -34,33 +34,175 @@ Good diversity in lighting, poses, expressions. Forces the model to learn robust
 
 ## Variational Autoencoders
 
-### The ELBO
+### The Big Picture
 
-VAEs maximize the evidence lower bound. From Jensen's inequality:
+Before the math: what are we even trying to do?
+
+We want to learn a probability distribution $p(x)$ over images $x$. If we have $p(x)$, we can sample new images. But images are high-dimensional (64×64×3 = 12,288 dims), and modeling $p(x)$ directly is intractable.
+
+Key insight: maybe there's a low-dimensional **latent space** $z$ that captures the essential factors of variation. Like "this person has dark hair, is smiling, wearing glasses" can be encoded in 100 numbers instead of 12,288 pixels.
+
+So we assume:
+1. There's a simple prior $p(z) = \mathcal{N}(0, \mathbf{I})$ over latent codes
+2. A decoder network $p_\theta(x \mid z)$ generates images from codes
+3. An encoder network $q_\phi(z \mid x)$ infers codes from images
+
+The trick: we can't compute $p(x) = \int p_\theta(x \mid z) p(z) dz$ (intractable integral over all possible $z$). So instead we maximize a **lower bound** on $\log p(x)$ called the ELBO.
+
+### Deriving the ELBO (Step by Step)
+
+Start with what we want: $\log p(x)$, the log-likelihood of our data.
+
+**Step 1:** Introduce the posterior $p(z \mid x)$ and our approximate posterior $q_\phi(z \mid x)$:
 
 $$
-\log p(x) = \log \mathbb{E}_{q_\phi(z \mid x)} \left[ \frac{p(x,z)}{q_\phi(z \mid x)} \right] \geq \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(x,z)}{q_\phi(z \mid x)} \right]
+\log p(x) = \log \int p(x, z) dz = \log \int \frac{p(x, z)}{q_\phi(z \mid x)} q_\phi(z \mid x) dz
 $$
 
-Split into reconstruction and KL:
+This is just multiplying and dividing by $q_\phi(z \mid x)$ (a trick to introduce our encoder).
+
+**Step 2:** Recognize this as an expectation over $q_\phi(z \mid x)$:
 
 $$
-\mathcal{L}(\theta, \phi; x) = \mathbb{E}_{q_\phi(z \mid x)}[\log p_\theta(x \mid z)] - D_{\text{KL}}(q_\phi(z \mid x) \| p(z))
+\log p(x) = \log \mathbb{E}_{q_\phi(z \mid x)} \left[ \frac{p(x,z)}{q_\phi(z \mid x)} \right]
 $$
 
-Encoder $q_\phi(z \mid x) = \mathcal{N}(\mu_\phi(x), \sigma_\phi^2(x) \mathbf{I})$ compresses to Gaussian. Decoder $p_\theta(x \mid z)$ reconstructs. Prior $p(z) = \mathcal{N}(0, \mathbf{I})$ regularizes latents.
+**Step 3:** Apply Jensen's inequality. Since $\log$ is concave:
 
-Full derivation on the [diffusion page](/posts/diffusion-models/#background-elbo-and-vae).
+$$
+\log \mathbb{E}[X] \geq \mathbb{E}[\log X]
+$$
 
-### Reparameterization
+Therefore:
 
-Can't backprop through sampling. Reparameterize: $z = \mu + \sigma \odot \epsilon$ where $\epsilon \sim \mathcal{N}(0, \mathbf{I})$. Stochasticity isolated, gradients flow through $\mu$ and $\sigma$.
+$$
+\log p(x) \geq \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(x,z)}{q_\phi(z \mid x)} \right] = \text{ELBO}
+$$
+
+This is the **Evidence Lower BOund**. By maximizing ELBO, we push up $\log p(x)$ from below.
+
+**Step 4:** Expand $p(x, z) = p_\theta(x \mid z) p(z)$ and split the expectation:
+
+$$
+\begin{align}
+\text{ELBO} &= \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p_\theta(x \mid z) p(z)}{q_\phi(z \mid x)} \right] \\
+&= \mathbb{E}_{q_\phi(z \mid x)}[\log p_\theta(x \mid z)] + \mathbb{E}_{q_\phi(z \mid x)} \left[ \log \frac{p(z)}{q_\phi(z \mid x)} \right] \\
+&= \underbrace{\mathbb{E}_{q_\phi(z \mid x)}[\log p_\theta(x \mid z)]}_{\text{reconstruction term}} - \underbrace{D_{\text{KL}}(q_\phi(z \mid x) \| p(z))}_{\text{regularization term}}
+\end{align}
+$$
+
+That's the VAE objective! Two terms:
+
+1. **Reconstruction term**: encode $x$ to $z$ via $q_\phi$, decode back via $p_\theta$. This is like the autoencoder loss.
+2. **KL term**: keep $q_\phi(z \mid x)$ close to prior $p(z) = \mathcal{N}(0, \mathbf{I})$. This regularizes the latent space.
+
+**Final loss** (we minimize the negative ELBO):
+
+$$
+\mathcal{L}(\theta, \phi; x) = -\mathbb{E}_{q_\phi(z \mid x)}[\log p_\theta(x \mid z)] + D_{\text{KL}}(q_\phi(z \mid x) \| p(z))
+$$
+
+In practice:
+- Encoder outputs $\mu_\phi(x)$ and $\log \sigma_\phi^2(x)$, defining $q_\phi(z \mid x) = \mathcal{N}(\mu_\phi(x), \sigma_\phi^2(x) \mathbf{I})$
+- We use MSE for reconstruction: $-\log p_\theta(x \mid z) \approx \|x - \hat{x}\|^2$
+- KL has closed form for Gaussians: $D_{\text{KL}}(q \| p) = \frac{1}{2} \sum_{i=1}^d (1 + \log \sigma_i^2 - \mu_i^2 - \sigma_i^2)$
+
+### Reparameterization Trick
+
+Problem: we need to sample $z \sim q_\phi(z \mid x) = \mathcal{N}(\mu, \sigma^2 \mathbf{I})$ to compute the expectation, but sampling is non-differentiable!
+
+Solution: **reparameterize** the sampling operation.
+
+Instead of:
+$$
+z \sim \mathcal{N}(\mu, \sigma^2)
+$$
+
+Write:
+$$
+z = \mu + \sigma \odot \epsilon, \quad \epsilon \sim \mathcal{N}(0, \mathbf{I})
+$$
+
+Now the randomness is in $\epsilon$, which doesn't depend on $\mu$ or $\sigma$. Gradients can flow through $\mu$ and $\sigma$ during backprop!
+
+**Why this works:** Both formulations give the same distribution for $z$, but the second makes the dependence on $\mu, \sigma$ explicit and differentiable.
+
+### Transpose Convolutions (The Math)
+
+Before we get to architecture, need to understand **transpose convolutions** (also called deconvolutions or fractionally-strided convolutions). They're the inverse of convolutions - they **upsample** instead of downsample.
+
+#### Regular Convolution (Downsampling)
+
+A regular convolution with stride $s$ can be written as matrix multiplication:
+
+$$
+y = Wx
+$$
+
+where $W$ is a sparse matrix built from the kernel, $x$ is the input (flattened), and $y$ is the output (flattened).
+
+**Example:** 4×4 input → 2×2 output (stride 2, kernel 3×3):
+
+Each output pixel is a weighted sum of a 3×3 region in the input. The matrix $W$ has shape $(4, 16)$ where each row corresponds to one output pixel and has 9 non-zero entries (the kernel weights).
+
+#### Transpose Convolution (Upsampling)
+
+A transpose convolution applies the **transpose** of that matrix:
+
+$$
+y = W^T x
+$$
+
+where $x$ is now the small input and $y$ is the larger output.
+
+**What does this mean geometrically?**
+
+Instead of combining multiple input pixels into one output pixel, we're doing the reverse: spreading one input pixel across multiple output pixels!
+
+**Step-by-step:**
+1. Take input pixel at position $(i, j)$
+2. Multiply it by the entire kernel to get a patch
+3. Place this patch in the output at position $(s \cdot i, s \cdot j)$ where $s$ is stride
+4. Where patches from different inputs overlap, **sum** them
+
+**Concrete example:** 2×2 input → 4×4 output (stride 2, kernel 3×3, padding 1)
+
+```
+Input:           Kernel:          Output:
+[a b]           [k₁₁ k₁₂ k₁₃]     [output is 4×4]
+[c d]           [k₂₁ k₂₂ k₂₃]
+                [k₃₁ k₃₂ k₃₃]
+```
+
+Each input value spreads a 3×3 pattern:
+- Input `a` at (0,0) → kernel pattern placed at output (0,0)
+- Input `b` at (0,1) → kernel pattern placed at output (0,2) [stride 2!]
+- Input `c` at (1,0) → kernel pattern placed at output (2,0)
+- Input `d` at (1,1) → kernel pattern placed at output (2,2)
+
+Where these 3×3 patches overlap in the output, we add the values together.
+
+**Why use kernel size 4 for stride 2?**
+
+Rule of thumb: $\text{kernel\_size} = 2 \times \text{stride}$ gives clean upsampling with predictable output size and minimal checkerboard artifacts.
+
+Output size formula:
+$$
+H_{\text{out}} = (H_{\text{in}} - 1) \times \text{stride} - 2 \times \text{padding} + \text{kernel\_size}
+$$
+
+For stride=2, kernel=4, padding=1:
+$$
+H_{\text{out}} = (H_{\text{in}} - 1) \times 2 - 2 + 4 = 2H_{\text{in}}
+$$
+
+Exactly 2× upsampling!
 
 ### Architecture
 
 Encoder: 4 conv blocks (stride 2, BatchNorm, ReLU) → flatten → split to $\mu$, $\log \sigma^2$.
 
-Decoder: Linear projection → 4 transposed conv blocks → tanh output.
+Decoder: Linear projection → 4 **transposed conv** blocks (kernel 4, stride 2, padding 1) → tanh output.
 
 Latent dim 100, hidden channels $[128, 256, 512, 1024]$.
 
@@ -196,17 +338,46 @@ Works but doesn't respect geometry.
 
 ### Spherical Interpolation (SLERP)
 
-Interpolate along great circle:
+**Why not just use linear interpolation?**
+
+Linear interpolation works in Euclidean space but ignores an important fact: the VAE's prior is $\mathcal{N}(0, \mathbf{I})$, and most probability mass concentrates on a **hypersphere** of radius $\sqrt{d}$ (where $d$ is latent dimension).
+
+Walking a straight line from $z_1$ to $z_2$ cuts through the interior of the sphere, passing through low-density regions. SLERP walks along the **great circle** on the sphere surface, staying in high-density regions.
+
+**The Math:**
+
+Great circle interpolation between two points on a sphere:
 
 $$
 \text{slerp}(z_1, z_2, \alpha) = \frac{\sin((1-\alpha)\omega)}{\sin \omega} z_1 + \frac{\sin(\alpha \omega)}{\sin \omega} z_2
 $$
 
-where $\omega = \arccos(\hat{z}_1 \cdot \hat{z}_2)$ and $\hat{z} = z / \|z\|$.
+where:
+- $\omega$ is the angle between vectors: $\omega = \arccos(\hat{z}_1 \cdot \hat{z}_2)$
+- $\hat{z} = z / \|z\|$ normalizes to unit sphere
+- $\alpha \in [0, 1]$ is interpolation parameter
+
+**Why this formula?**
+
+Think of $z_1$ and $z_2$ as points on a unit sphere. We want the path that:
+1. Stays on the sphere surface (maintains constant distance from origin)
+2. Has constant angular velocity (uniform speed along arc)
+
+The weights $\frac{\sin((1-\alpha)\omega)}{\sin \omega}$ and $\frac{\sin(\alpha \omega)}{\sin \omega}$ accomplish this. They're derived from the requirement that the interpolated point stays on the sphere and moves at constant angular speed.
+
+**Geometric intuition:**
+
+```
+Linear:  z₁ -------- z_mid -------- z₂  (cuts through interior)
+                   ↓
+SLERP:   z₁ ~~~~~~~~ z_mid ~~~~~~~~ z₂  (follows surface)
+```
+
+On the unit sphere, SLERP is the unique path with constant speed that connects two points along the shortest arc.
 
 ![VAE Latent Space Interpolation]({{ "/assets/images/vae latent space interpolation.png" | relative_url }})
 
-Smoother transitions. Maintains constant speed through latent space, stays on the manifold where density concentrates.
+Result: smoother transitions, better samples. SLERP stays where the latent distribution has mass.
 
 ```python
 def slerp(z1, z2, alpha):
@@ -256,7 +427,74 @@ Generates novel faces. The KL term forces encoder distribution to match the prio
 
 ## PCA Analysis
 
-Encoded 5000 images, ran PCA on latents. Top 2 components capture main variance axes.
+### What is PCA? (The Math)
+
+**Principal Component Analysis** finds the directions of maximum variance in high-dimensional data.
+
+Given $N$ data points $\{z_1, z_2, \ldots, z_N\}$ where each $z_i \in \mathbb{R}^d$ (in our case, $d=100$ latent dimensions), we want to find a lower-dimensional representation that captures most of the variation.
+
+**Step 1: Center the data**
+
+$$
+\bar{z} = \frac{1}{N} \sum_{i=1}^N z_i
+$$
+
+$$
+\tilde{z}_i = z_i - \bar{z}
+$$
+
+**Step 2: Compute covariance matrix**
+
+$$
+C = \frac{1}{N} \sum_{i=1}^N \tilde{z}_i \tilde{z}_i^T \in \mathbb{R}^{d \times d}
+$$
+
+This matrix encodes how each dimension varies with every other dimension. $C_{ij}$ measures correlation between dimensions $i$ and $j$.
+
+**Step 3: Find eigenvectors of $C$**
+
+$$
+C v_k = \lambda_k v_k
+$$
+
+The eigenvectors $v_k$ are the **principal components** - orthogonal directions in latent space. The eigenvalues $\lambda_k$ measure how much variance is in that direction.
+
+Sort by eigenvalue: $\lambda_1 \geq \lambda_2 \geq \ldots \geq \lambda_d$. Then:
+- $v_1$ is the direction of maximum variance (first principal component)
+- $v_2$ is the direction of maximum variance orthogonal to $v_1$ (second PC)
+- etc.
+
+**Step 4: Project data onto PCs**
+
+To represent data point $z$ in the PC basis:
+
+$$
+z_{\text{PC}} = V^T (z - \bar{z})
+$$
+
+where $V = [v_1 \; v_2 \; \ldots \; v_k]$ contains the top $k$ principal components.
+
+**Step 5: Reconstruct from PCs**
+
+To go back to original space:
+
+$$
+z_{\text{recon}} = V z_{\text{PC}} + \bar{z}
+$$
+
+If we use all $d$ components, reconstruction is perfect. If we use only top $k$ components, we keep the $k$ dimensions with most variance and lose the rest.
+
+**Variance explained:**
+
+The fraction of total variance captured by top $k$ components is:
+
+$$
+\frac{\sum_{i=1}^k \lambda_i}{\sum_{i=1}^d \lambda_i}
+$$
+
+### Applying PCA to VAE Latents
+
+Encoded 5000 images, ran PCA on the 100-dimensional latents. Top 2 components capture main variance axes.
 
 ![PCA Training]({{ "/assets/images/pca training.png" | relative_url }})
 
@@ -264,7 +502,15 @@ Generated grid across PC1/PC2:
 
 ![PCA Latent Space Grid]({{ "/assets/images/pca latent space grid.png" | relative_url }})
 
-Principal components capture interpretable features (lighting, pose, expression). Most variance in few dimensions. Could probably use 20-30 dims instead of 100 without losing much.
+**What does this tell us?**
+
+1. **Dimensionality reduction:** Most variance concentrates in a few dimensions. Top 10-20 PCs likely capture 80%+ of variation.
+
+2. **Interpretable directions:** Principal components often correspond to semantic features (lighting, pose, gender, expression). Walking along PC1 might change lighting, PC2 might change pose, etc.
+
+3. **Latent space structure:** The fact that PCA works well (smooth transitions in the grid) means the VAE learned a relatively linear structure. Features combine additively.
+
+4. **Efficiency:** We used 100 latent dims but could probably get similar results with 20-30 dims. The KL term pushed encoder to use fewer dimensions effectively.
 
 ```python
 @t.inference_mode()
@@ -310,19 +556,96 @@ def pca_analysis(model, dataset, n_samples=5000):
 
 ## Generative Adversarial Networks
 
-### The Minimax Game
+### The Big Picture
 
-GAN training = two-player zero-sum game:
+VAEs learn to generate by maximizing likelihood. GANs take a completely different approach: **adversarial training**.
+
+Setup:
+1. **Generator** $G$: Takes random noise $z \sim \mathcal{N}(0, \mathbf{I})$ and produces fake images $G(z)$
+2. **Discriminator** $D$: Binary classifier that tries to distinguish real images from fake ones
+
+They play a game:
+- $D$ tries to give high scores to real images, low scores to fake images
+- $G$ tries to make fake images that fool $D$ into giving high scores
+
+At equilibrium, $G$ produces images so realistic that $D$ can't tell them apart from real ones: $D(G(z)) = 0.5$ everywhere.
+
+### The Minimax Objective (Building It Up)
+
+Let's construct the objective step by step.
+
+**What does the discriminator want?**
+
+For a real image $x \sim p_{\text{data}}$:
+- Want $D(x) \approx 1$ (classify as real)
+- Binary cross-entropy: $-\log D(x)$ is small when $D(x)$ is close to 1
+
+For a fake image $G(z)$ where $z \sim p(z)$:
+- Want $D(G(z)) \approx 0$ (classify as fake)
+- Binary cross-entropy: $-\log(1 - D(G(z)))$ is small when $D(G(z))$ is close to 0
+
+Discriminator **maximizes** expected log-probability of correct classification:
 
 $$
-\min_G \max_D \mathbb{E}_{x \sim p_{\text{data}}}[\log D(x)] + \mathbb{E}_{z \sim p(z)}[\log(1 - D(G(z)))]
+\max_D \mathbb{E}_{x \sim p_{\text{data}}}[\log D(x)] + \mathbb{E}_{z \sim p(z)}[\log(1 - D(G(z)))]
 $$
 
-Discriminator $D$ learns to distinguish real from fake. Generator $G$ learns to fool discriminator. At equilibrium, $D(G(z)) = 0.5$ everywhere.
+**What does the generator want?**
 
-Practical training uses separate objectives:
-- Discriminator: maximize $\log D(x) + \log(1 - D(G(z)))$
-- Generator: maximize $\log D(G(z))$ (equivalently minimize $-\log D(G(z))$)
+Generator wants to **minimize** that same objective (it wants $D$ to fail):
+
+$$
+\min_G \mathbb{E}_{z \sim p(z)}[\log(1 - D(G(z)))]
+$$
+
+Put them together, we get a **minimax game**:
+
+$$
+\min_G \max_D \; V(D, G) = \mathbb{E}_{x \sim p_{\text{data}}}[\log D(x)] + \mathbb{E}_{z \sim p(z)}[\log(1 - D(G(z)))]
+$$
+
+**Why is this a "game"?** $D$ and $G$ have opposing objectives. $D$ wants to maximize $V$, $G$ wants to minimize it. Training alternates between updating $D$ and $G$.
+
+### Practical Training Objectives
+
+The minimax formulation above is theoretically nice but has a practical problem: early in training, when $G$ is terrible, $D$ easily rejects fake images: $D(G(z)) \approx 0$.
+
+Then $\log(1 - D(G(z))) \approx 0$, giving very small gradients for $G$. Training is slow!
+
+**Solution:** Instead of minimizing $\log(1 - D(G(z)))$, maximize $\log D(G(z))$. Same optimal solution but stronger gradients early on.
+
+Training loop:
+1. **Update $D$**: Maximize $\log D(x) + \log(1 - D(G(z)))$
+   - Forward pass real images, compute $\log D(x)$
+   - Generate fake images, compute $\log(1 - D(G(z)))$
+   - Gradient ascent on sum
+
+2. **Update $G$**: Maximize $\log D(G(z))$ (equivalently minimize $-\log D(G(z))$)
+   - Generate fake images
+   - Forward through $D$, compute $\log D(G(z))$
+   - Gradient ascent (or descent on negative)
+
+### Equilibrium Analysis
+
+At the optimal solution, what happens?
+
+**Claim:** At equilibrium, $D^*(x) = \frac{p_{\text{data}}(x)}{p_{\text{data}}(x) + p_g(x)}$ where $p_g$ is the distribution induced by $G$.
+
+**Why?** For fixed $G$, optimal $D$ maximizes:
+
+$$
+V(D) = \int_x p_{\text{data}}(x) \log D(x) dx + \int_x p_g(x) \log(1 - D(x)) dx
+$$
+
+Taking derivative w.r.t. $D(x)$ and setting to zero:
+
+$$
+\frac{p_{\text{data}}(x)}{D(x)} - \frac{p_g(x)}{1 - D(x)} = 0
+$$
+
+Solving: $D^*(x) = \frac{p_{\text{data}}(x)}{p_{\text{data}}(x) + p_g(x)}$
+
+**At perfect equilibrium:** If $G$ generates perfectly ($p_g = p_{\text{data}}$), then $D^*(x) = 0.5$ everywhere. The discriminator can't tell real from fake!
 
 ### DCGAN Architecture
 
