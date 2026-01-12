@@ -63,5 +63,5 @@ defaults:
       comments: false
       share: false
       related: true
-      toc: true
-      toc_sticky: true
+      toc: false
+      toc_sticky: false

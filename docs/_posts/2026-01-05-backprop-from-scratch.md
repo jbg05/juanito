@@ -3,11 +3,10 @@ title: "MNIST from Scratch (Backprop, Autodiff, SGD)"
 date: 2026-01-05
 categories: [notes]
 tags: [ml, backprop, autodiff, mnist]
-toc: true
-toc_sticky: true
+excerpt: "Built backprop and autodiff from scratch. Computational graphs, gradient tracking, trained on MNIST."
 ---
 
-Implemented backprop and autodiff from scratch. Built computational graph tracking, topological sort, custom Tensor class. Trained MLP on MNIST with SGD.
+Implemented backpropagation and automatic differentiation without any frameworks. Built the whole thing - computational graph tracking, backward functions, topological sort. Trained an MLP on MNIST to make sure it works.
 
 > ## 🚧 Reminder / Next steps (don't forget)
 > You paused here — come back and build the *cool* extensions:

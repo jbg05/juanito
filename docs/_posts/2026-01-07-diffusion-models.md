@@ -4,11 +4,10 @@ date: 2026-01-07
 categories: [notes]
 tags: [ml, diffusion, generative-models, score-matching]
 math: true
-toc: true
-toc_sticky: true
+excerpt: "Derived diffusion models from first principles. ELBO, noise schedules, score matching - full math."
 ---
 
-Derived variational diffusion from ELBO. Forward process adds noise, reverse process learns to denoise. Covered noise schedules, score matching, three equivalent parameterizations.
+Worked through the math behind diffusion models from scratch. Started with ELBO, derived the forward/reverse processes, explored different parameterizations (noise prediction vs score matching). Heavy on derivations.
 
 ## Background: ELBO and VAE
 

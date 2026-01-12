@@ -4,11 +4,10 @@ date: 2026-01-12
 categories: [notes]
 tags: [ml, transformer, attention, gpt, nlp]
 math: true
-toc: true
-toc_sticky: true
+excerpt: "Built GPT-2 from scratch. Math-heavy walkthrough of attention, embeddings, sampling strategies."
 ---
 
-Built GPT-2 architecture from scratch. Implemented attention, residual stream, position embeddings. Trained model, explored sampling strategies.
+Implemented the full transformer architecture - attention mechanism, positional embeddings, residual connections. Trained it to generate text and explored different sampling methods.
 
 ## The Big Picture
 

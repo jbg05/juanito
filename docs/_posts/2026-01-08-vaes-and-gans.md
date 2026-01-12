@@ -4,11 +4,10 @@ date: 2026-01-08
 categories: [notes]
 tags: [ml, vae, gan, generative-models, latent-space]
 math: true
-toc: true
-toc_sticky: true
+excerpt: "Built VAEs and GANs to generate faces. Explored latent space interpolation, compared approaches."
 ---
 
-Built VAEs and DCGANs from scratch on CelebA-64. Implemented transposed convolutions, reparameterization trick, adversarial training. Explored latent interpolation and PCA.
+Trained VAEs and DCGANs on CelebA to generate faces. Implemented the full pipeline from scratch - custom transposed convs, reparameterization trick, adversarial training. Played around with latent space interpolation and PCA to see what the models learned.
 
 ## Dataset
 
