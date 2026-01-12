@@ -13,9 +13,9 @@ Trained VAEs and DCGANs on CelebA to generate faces. Implemented the full pipeli
 
 Training on CelebA-64. Standard face generation benchmark, 200k celebrity faces preprocessed to 64×64.
 
-![CelebA Samples]({{ "/assets/images/CelebA dataset.png" | relative_url }})
+![CelebA Samples]({{ "/assets/images/Screenshot 2026-01-13 at 12.14.20 AM.png" | relative_url }})
 
-Good diversity in lighting, poses, expressions. Forces the model to learn robust features.
+Good diversity in lighting, poses, expressions. The variety here forces the model to learn robust features rather than memorizing specific patterns.
 
 ---
 
@@ -23,7 +23,7 @@ Good diversity in lighting, poses, expressions. Forces the model to learn robust
 
 ### The Big Picture
 
-Before the math: what are we even trying to do?
+Before diving into math: what are we even trying to do?
 
 We want to learn a probability distribution $p(x)$ over images $x$. If we have $p(x)$, we can sample new images. But images are high-dimensional (64×64×3 = 12,288 dims), and modeling $p(x)$ directly is intractable.
 
@@ -36,25 +36,25 @@ So we assume:
 
 The trick: we can't compute $p(x) = \int p_\theta(x \mid z) p(z) dz$ (intractable integral over all possible $z$). So instead we maximize a **lower bound** on $\log p(x)$ called the ELBO.
 
-### Deriving the ELBO (Step by Step)
+### Deriving the ELBO
 
-Start with what we want: $\log p(x)$, the log-likelihood of our data.
+Let's build this up. Start with what we want: $\log p(x)$, the log-likelihood of our data.
 
-**Step 1:** Introduce the posterior $p(z \mid x)$ and our approximate posterior $q_\phi(z \mid x)$:
+Introduce the posterior $p(z \mid x)$ and our approximate posterior $q_\phi(z \mid x)$:
 
 $$
 \log p(x) = \log \int p(x, z) dz = \log \int \frac{p(x, z)}{q_\phi(z \mid x)} q_\phi(z \mid x) dz
 $$
 
-This is just multiplying and dividing by $q_\phi(z \mid x)$ (a trick to introduce our encoder).
+This is just multiplying and dividing by $q_\phi(z \mid x)$ - a trick to introduce our encoder.
 
-**Step 2:** Recognize this as an expectation over $q_\phi(z \mid x)$:
+Recognize this as an expectation over $q_\phi(z \mid x)$:
 
 $$
 \log p(x) = \log \mathbb{E}_{q_\phi(z \mid x)} \left[ \frac{p(x,z)}{q_\phi(z \mid x)} \right]
 $$
 
-**Step 3:** Apply Jensen's inequality. Since $\log$ is concave:
+Apply Jensen's inequality. Since $\log$ is concave:
 
 $$
 \log \mathbb{E}[X] \geq \mathbb{E}[\log X]
@@ -68,7 +68,7 @@ $$
 
 This is the **Evidence Lower BOund**. By maximizing ELBO, we push up $\log p(x)$ from below.
 
-**Step 4:** Expand $p(x, z) = p_\theta(x \mid z) p(z)$ and split the expectation:
+Expand $p(x, z) = p_\theta(x \mid z) p(z)$ and split the expectation:
 
 $$
 \begin{align}
@@ -114,7 +114,7 @@ Now the randomness is in $\epsilon$, which doesn't depend on $\mu$ or $\sigma$. 
 
 **Why this works:** Both formulations give the same distribution for $z$, but the second makes the dependence on $\mu, \sigma$ explicit and differentiable.
 
-### Transpose Convolutions (The Math)
+### Transpose Convolutions
 
 Before we get to architecture, need to understand **transpose convolutions** (also called deconvolutions or fractionally-strided convolutions). They're the inverse of convolutions - they **upsample** instead of downsample.
 
@@ -128,9 +128,7 @@ $$
 
 where $W$ is a sparse matrix built from the kernel, $x$ is the input (flattened), and $y$ is the output (flattened).
 
-**Example:** 4×4 input → 2×2 output (stride 2, kernel 3×3):
-
-Each output pixel is a weighted sum of a 3×3 region in the input. The matrix $W$ has shape $(4, 16)$ where each row corresponds to one output pixel and has 9 non-zero entries (the kernel weights).
+For example: 4×4 input → 2×2 output (stride 2, kernel 3×3). Each output pixel is a weighted sum of a 3×3 region in the input. The matrix $W$ has shape $(4, 16)$ where each row corresponds to one output pixel and has 9 non-zero entries (the kernel weights).
 
 #### Transpose Convolution (Upsampling)
 
@@ -146,11 +144,11 @@ where $x$ is now the small input and $y$ is the larger output.
 
 Instead of combining multiple input pixels into one output pixel, we're doing the reverse: spreading one input pixel across multiple output pixels!
 
-**Step-by-step:**
-1. Take input pixel at position $(i, j)$
-2. Multiply it by the entire kernel to get a patch
-3. Place this patch in the output at position $(s \cdot i, s \cdot j)$ where $s$ is stride
-4. Where patches from different inputs overlap, **sum** them
+Here's how it works:
+- Take input pixel at position $(i, j)$
+- Multiply it by the entire kernel to get a patch
+- Place this patch in the output at position $(s \cdot i, s \cdot j)$ where $s$ is stride
+- Where patches from different inputs overlap, **sum** them
 
 **Concrete example:** 2×2 input → 4×4 output (stride 2, kernel 3×3, padding 1)
 
@@ -285,27 +283,19 @@ def vae_loss(x, x_recon, mu, logvar, beta_kl=1.0):
     return recon_loss + beta_kl * kl_loss, recon_loss, kl_loss
 ```
 
-### Training
+### Training & Results
 
-10 epochs, batch 64, Adam lr=1e-3. $\beta_{\text{KL}} = 0.5$ balances reconstruction vs regularization.
+Trained for 100 epochs with batch size 64, Adam lr=5e-4. Used $\beta_{\text{KL}} = 0.03$ to prioritize reconstruction quality - lower beta means the model focuses more on making sharp images rather than perfect latent structure.
 
-![VAE Training]({{ "/assets/images/vae training.png" | relative_url }})
+The training was pretty smooth. Reconstruction loss dominated early on, then KL divergence kicked in to regularize the space.
 
-Loss converges smoothly. Reconstruction term dominates early, KL kicks in later. Final loss ~0.17.
+![Autoencoder Latent Space]({{ "/assets/images/Screenshot 2026-01-13 at 12.14.38 AM.png" | relative_url }})
 
-![VAE Latent Space]({{ "/assets/images/vae latent space.png" | relative_url }})
+Here's what the autoencoder baseline looks like - it reconstructs well but the latent space visualization shows repeated patterns. Without the KL term, there's no pressure to organize the latent space nicely. This grid is generated by sweeping across two dimensions of the 100D latent space.
 
-Reconstructions look clean. Model compressed 12,288 dims down to 100 and back with minimal loss.
+![VAE Latent Space]({{ "/assets/images/Screenshot 2026-01-13 at 12.14.47 AM.png" | relative_url }})
 
----
-
-## Autoencoder Baseline
-
-Standard autoencoder (no variational component) for comparison:
-
-![Autoencoder Latent Space]({{ "/assets/images/autoencoder latent space.png" | relative_url }})
-
-Reconstructs well but latent space less structured. No regularization means scattered representations. This is why the KL term matters.
+VAE latent space looks much more structured. The faces transition smoothly across the grid, showing the model learned a continuous representation. Each position in this grid corresponds to a different point in the first two latent dimensions.
 
 ---
 
@@ -319,9 +309,9 @@ $$
 z_\alpha = (1 - \alpha) z_1 + \alpha z_2, \quad \alpha \in [0, 1]
 $$
 
-![Latent Space Interpolation]({{ "/assets/images/latent space interpolation.png" | relative_url }})
+![Latent Space Interpolation]({{ "/assets/images/Screenshot 2026-01-13 at 12.14.51 AM.png" | relative_url }})
 
-Works but doesn't respect geometry.
+Pretty smooth! The face gradually morphs from one person to another. Hair color, skin tone, lighting all transition continuously. This works because the VAE learned to organize similar features near each other in latent space.
 
 ### Spherical Interpolation (SLERP)
 
@@ -330,8 +320,6 @@ Works but doesn't respect geometry.
 Linear interpolation works in Euclidean space but ignores an important fact: the VAE's prior is $\mathcal{N}(0, \mathbf{I})$, and most probability mass concentrates on a **hypersphere** of radius $\sqrt{d}$ (where $d$ is latent dimension).
 
 Walking a straight line from $z_1$ to $z_2$ cuts through the interior of the sphere, passing through low-density regions. SLERP walks along the **great circle** on the sphere surface, staying in high-density regions.
-
-**The Math:**
 
 Great circle interpolation between two points on a sphere:
 
@@ -361,8 +349,6 @@ SLERP:   z₁ ~~~~~~~~ z_mid ~~~~~~~~ z₂  (follows surface)
 ```
 
 On the unit sphere, SLERP is the unique path with constant speed that connects two points along the shortest arc.
-
-![VAE Latent Space Interpolation]({{ "/assets/images/vae latent space interpolation.png" | relative_url }})
 
 Result: smoother transitions, better samples. SLERP stays where the latent distribution has mass.
 
@@ -406,21 +392,21 @@ def interpolate_slerp(model, dataset, n_steps=10):
 
 Sample from prior $\mathcal{N}(0, \mathbf{I})$:
 
-![Random Samples from Prior]({{ "/assets/images/random samples from prior.png" | relative_url }})
+![Random Samples from Prior]({{ "/assets/images/Screenshot 2026-01-13 at 12.14.54 AM.png" | relative_url }})
 
-Generates novel faces. The KL term forces encoder distribution to match the prior, so sampling from $\mathcal{N}(0, \mathbf{I})$ actually works.
+These faces are completely generated from random noise - not reconstructions. The KL term forced the encoder to match the prior distribution, so sampling from $\mathcal{N}(0, \mathbf{I})$ actually produces valid faces. You can see good diversity in gender, age, lighting, and expression.
 
 ---
 
 ## PCA Analysis
 
-### What is PCA? (The Math)
+### What is PCA?
 
 **Principal Component Analysis** finds the directions of maximum variance in high-dimensional data.
 
 Given $N$ data points $\{z_1, z_2, \ldots, z_N\}$ where each $z_i \in \mathbb{R}^d$ (in our case, $d=100$ latent dimensions), we want to find a lower-dimensional representation that captures most of the variation.
 
-**Step 1: Center the data**
+Center the data:
 
 $$
 \bar{z} = \frac{1}{N} \sum_{i=1}^N z_i
@@ -430,7 +416,7 @@ $$
 \tilde{z}_i = z_i - \bar{z}
 $$
 
-**Step 2: Compute covariance matrix**
+Compute covariance matrix:
 
 $$
 C = \frac{1}{N} \sum_{i=1}^N \tilde{z}_i \tilde{z}_i^T \in \mathbb{R}^{d \times d}
@@ -438,7 +424,7 @@ $$
 
 This matrix encodes how each dimension varies with every other dimension. $C_{ij}$ measures correlation between dimensions $i$ and $j$.
 
-**Step 3: Find eigenvectors of $C$**
+Find eigenvectors of $C$:
 
 $$
 C v_k = \lambda_k v_k
@@ -451,8 +437,6 @@ Sort by eigenvalue: $\lambda_1 \geq \lambda_2 \geq \ldots \geq \lambda_d$. Then:
 - $v_2$ is the direction of maximum variance orthogonal to $v_1$ (second PC)
 - etc.
 
-**Step 4: Project data onto PCs**
-
 To represent data point $z$ in the PC basis:
 
 $$
@@ -460,8 +444,6 @@ z_{\text{PC}} = V^T (z - \bar{z})
 $$
 
 where $V = [v_1 \; v_2 \; \ldots \; v_k]$ contains the top $k$ principal components.
-
-**Step 5: Reconstruct from PCs**
 
 To go back to original space:
 
@@ -471,8 +453,6 @@ $$
 
 If we use all $d$ components, reconstruction is perfect. If we use only top $k$ components, we keep the $k$ dimensions with most variance and lose the rest.
 
-**Variance explained:**
-
 The fraction of total variance captured by top $k$ components is:
 
 $$
@@ -481,23 +461,16 @@ $$
 
 ### Applying PCA to VAE Latents
 
-Encoded 5000 images, ran PCA on the 100-dimensional latents. Top 2 components capture main variance axes.
+Encoded 5000 images, ran PCA on the 100-dimensional latents. Top 2 components capture the main variance axes.
 
-![PCA Training]({{ "/assets/images/pca training.png" | relative_url }})
+![PCA Latent Space Grid]({{ "/assets/images/Screenshot 2026-01-13 at 12.15.00 AM.png" | relative_url }})
 
-Generated grid across PC1/PC2:
+Generated a 10×10 grid by sweeping across the first two principal components. Horizontal axis is PC1, vertical is PC2. The smooth transitions show the VAE learned a relatively linear structure - features combine additively rather than in complex nonlinear ways.
 
-![PCA Latent Space Grid]({{ "/assets/images/pca latent space grid.png" | relative_url }})
-
-**What does this tell us?**
-
-1. **Dimensionality reduction:** Most variance concentrates in a few dimensions. Top 10-20 PCs likely capture 80%+ of variation.
-
-2. **Interpretable directions:** Principal components often correspond to semantic features (lighting, pose, gender, expression). Walking along PC1 might change lighting, PC2 might change pose, etc.
-
-3. **Latent space structure:** The fact that PCA works well (smooth transitions in the grid) means the VAE learned a relatively linear structure. Features combine additively.
-
-4. **Efficiency:** We used 100 latent dims but could probably get similar results with 20-30 dims. The KL term pushed encoder to use fewer dimensions effectively.
+What's interesting here:
+- Most variance concentrates in just a few dimensions. The top 10-20 PCs probably capture 80%+ of variation.
+- Principal components often correspond to semantic features. Walking along PC1 might gradually change lighting or pose, PC2 might control gender or age.
+- We used 100 latent dims but could probably get similar results with 20-30 dims. The KL term pushed the encoder to use fewer effective dimensions.
 
 ```python
 @t.inference_mode()
@@ -557,9 +530,9 @@ They play a game:
 
 At equilibrium, $G$ produces images so realistic that $D$ can't tell them apart from real ones: $D(G(z)) = 0.5$ everywhere.
 
-### The Minimax Objective (Building It Up)
+### The Minimax Objective
 
-Let's construct the objective step by step.
+Let's construct the objective from the ground up.
 
 **What does the discriminator want?**
 
@@ -601,16 +574,9 @@ Then $\log(1 - D(G(z))) \approx 0$, giving very small gradients for $G$. Trainin
 
 **Solution:** Instead of minimizing $\log(1 - D(G(z)))$, maximize $\log D(G(z))$. Same optimal solution but stronger gradients early on.
 
-Training loop:
-1. **Update $D$**: Maximize $\log D(x) + \log(1 - D(G(z)))$
-   - Forward pass real images, compute $\log D(x)$
-   - Generate fake images, compute $\log(1 - D(G(z)))$
-   - Gradient ascent on sum
-
-2. **Update $G$**: Maximize $\log D(G(z))$ (equivalently minimize $-\log D(G(z))$)
-   - Generate fake images
-   - Forward through $D$, compute $\log D(G(z))$
-   - Gradient ascent (or descent on negative)
+Training loop alternates:
+- **Update $D$**: Maximize $\log D(x) + \log(1 - D(G(z)))$ by doing a forward pass on real images, generating fake images, and doing gradient ascent on the sum.
+- **Update $G$**: Maximize $\log D(G(z))$ by generating fake images, forwarding through $D$, and doing gradient ascent.
 
 ### Equilibrium Analysis
 
@@ -734,12 +700,12 @@ def initialize_weights(model):
             nn.init.constant_(m.bias.data, 0.0)
 ```
 
-### Training
+### Training & Results
 
-5 epochs, alternating D/G updates. Adam lr=0.0002, $\beta = (0.5, 0.999)$. Gradient clipping (norm 1.0) for stability.
+Trained for 200 epochs with alternating D/G updates. Adam lr=0.0002, $\beta = (0.5, 0.999)$. Added gradient clipping (norm 1.0) for stability - GANs can be finicky without it.
 
 ```python
-def train_gan(gan, dataset, epochs=5, batch_size=32, lr=0.0002):
+def train_gan(gan, dataset, epochs=200, batch_size=32, lr=0.0002):
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     optG = t.optim.Adam(gan.netG.parameters(), lr=lr, betas=(0.5, 0.999))
     optD = t.optim.Adam(gan.netD.parameters(), lr=lr, betas=(0.5, 0.999))
@@ -767,25 +733,15 @@ def train_gan(gan, dataset, epochs=5, batch_size=32, lr=0.0002):
             optG.step()
 ```
 
-![GAN Training]({{ "/assets/images/gan training.png" | relative_url }})
+Training stabilized nicely. The losses bounce around as the networks compete, but eventually reach an equilibrium where neither dominates.
 
-Training stabilizes. Losses bounce as networks compete, reach equilibrium where neither dominates.
+![GAN Latent Space Interpolation]({{ "/assets/images/Screenshot 2026-01-13 at 12.15.05 AM.png" | relative_url }})
 
----
+GAN interpolation is smooth despite having no explicit latent structure. The generator learned a continuous manifold naturally through adversarial training. Walking between two random points gives a believable morph - lighting, face shape, expression all transition coherently.
 
-## GAN Results
+![GAN Generated Faces]({{ "/assets/images/Screenshot 2026-01-13 at 12.15.10 AM.png" | relative_url }})
 
-### Generated Faces
-
-![GAN Generated Faces]({{ "/assets/images/gan generated faces.png" | relative_url }})
-
-Sharper than VAE samples. Generator has one job (fool discriminator) vs two (reconstruct + match prior). Discriminator acts as learned perceptual loss, better than pixel MSE.
-
-### GAN Interpolation
-
-![GAN Latent Space Interpolation]({{ "/assets/images/gan latent space interpolation.png" | relative_url }})
-
-Smooth transitions despite no explicit latent structure. Generator learned continuous manifold naturally.
+Generated faces look noticeably sharper than VAE samples. The discriminator acts as a learned perceptual loss - it forces the generator to produce images that look realistic at a high level, not just match pixels. You can see diverse ages, genders, lighting conditions, and expressions.
 
 ```python
 @t.inference_mode()
@@ -810,26 +766,26 @@ def gan_interpolate_slerp(gan, n_steps=10):
 
 ## Takeaways
 
-Both VAEs and GANs learn meaningful latent representations. Different tradeoffs.
+Both VAEs and GANs learn meaningful latent representations, just with different tradeoffs.
 
 **VAE:**
-- Explicit likelihood, stable training
-- Structured latent space (KL term enforces this)
-- Samples can be blurry (pixel loss limitation)
-- Built-in encoder
+- Explicit likelihood objective makes training stable
+- KL term enforces structured latent space
+- Samples can be blurry due to pixel-wise MSE loss
+- Built-in encoder for inference
 
 **GAN:**
-- Sharper samples (learned perceptual loss)
-- Training less stable, need to balance D/G
-- No encoder by default
-- Can suffer mode collapse
+- Sharper samples thanks to learned perceptual loss
+- Training less stable - need to carefully balance discriminator and generator
+- No encoder by default (though you can add one)
+- Can suffer mode collapse if training goes wrong
 
-**Other notes:**
+**Other observations:**
 
-SLERP > linear for interpolation. Respects hypersphere geometry where latent density concentrates.
+SLERP consistently beats linear interpolation. It respects the hypersphere geometry where latent density naturally concentrates.
 
-PCA shows most variance in few dimensions. Could compress to 20-30 dims without losing much.
+PCA revealed that most variance lives in a small number of dimensions. We could probably compress from 100 to 20-30 dims without losing much quality.
 
-Custom ConvTranspose2d worked clean. Good to implement once to understand internals.
+Implementing custom ConvTranspose2d was worth it for understanding how upsampling really works under the hood.
 
-Models trained on CUDA, no device bugs. Checkpoints saved for downstream use.
+Trained everything on CUDA with no device bugs. Saved checkpoints for potential downstream use.
