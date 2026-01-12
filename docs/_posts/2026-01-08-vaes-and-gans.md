@@ -702,38 +702,7 @@ def initialize_weights(model):
 
 ### Training & Results
 
-Trained for 200 epochs with alternating D/G updates. Adam lr=0.0002, $\beta = (0.5, 0.999)$. Added gradient clipping (norm 1.0) for stability - GANs can be finicky without it.
-
-```python
-def train_gan(gan, dataset, epochs=200, batch_size=32, lr=0.0002):
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-    optG = t.optim.Adam(gan.netG.parameters(), lr=lr, betas=(0.5, 0.999))
-    optD = t.optim.Adam(gan.netD.parameters(), lr=lr, betas=(0.5, 0.999))
-
-    for epoch in range(epochs):
-        for img_real, _ in loader:
-            img_real = img_real.to(device)
-            bs = img_real.size(0)
-            noise = t.randn(bs, gan.latent_dim_size).to(device)
-            img_fake = gan.netG(noise)
-
-            optD.zero_grad()
-            D_x = gan.netD(img_real)
-            D_G_z = gan.netD(img_fake.detach())
-            lossD = -(t.log(D_x + 1e-8).mean() + t.log(1 - D_G_z + 1e-8).mean())
-            lossD.backward()
-            nn.utils.clip_grad_norm_(gan.netD.parameters(), 1.0)
-            optD.step()
-
-            optG.zero_grad()
-            D_G_z = gan.netD(img_fake)
-            lossG = -(t.log(D_G_z + 1e-8).mean())
-            lossG.backward()
-            nn.utils.clip_grad_norm_(gan.netG.parameters(), 1.0)
-            optG.step()
-```
-
-Training stabilized nicely. The losses bounce around as the networks compete, but eventually reach an equilibrium where neither dominates.
+Trained for 200 epochs with alternating D/G updates. Adam lr=0.0002, $\beta = (0.5, 0.999)$. Added gradient clipping (norm 1.0) for stability - GANs can be finicky without it. Training stabilized nicely. The losses bounce around as the networks compete, but eventually reach an equilibrium where neither dominates.
 
 ![GAN Latent Space Interpolation]({{ "/assets/images/Screenshot 2026-01-13 at 12.15.05 AM.png" | relative_url }})
 
