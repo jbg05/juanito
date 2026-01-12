@@ -11,7 +11,7 @@ Implemented the full transformer architecture - attention mechanism, positional 
 
 ## The Big Picture
 
-Transformers model sequences by learning patterns in data. For language: given tokens $x_1, \ldots, x_t$, predict distribution over next token $x_{t+1}$.
+Transformers model sequences by learning patterns in data. For language modeling, the goal is simple: given tokens $x_1, \ldots, x_t$, predict a distribution over the next token $x_{t+1}$.
 
 Key architectural choices:
 1. **Residual stream**: Information flows straight through the model with additions, no bottlenecks
@@ -28,19 +28,19 @@ Standard setup:
 
 ## Tokenization
 
-Text → integers via learned sub-word units. GPT-2 uses BPE (Byte Pair Encoding) with vocabulary size 50,257.
+Converting text into integers is the first step. GPT-2 uses BPE (Byte Pair Encoding) with vocabulary size 50,257.
 
-**Why sub-words?**
-- Word-level: huge vocabulary (100k+), many OOV issues
-- Character-level: very long sequences, harder to learn patterns
-- Sub-word: balance between vocabulary size and sequence length
+**Why sub-words instead of full words or characters?**
+- Word-level has huge vocabularies (100k+) and struggles with rare words
+- Character-level creates very long sequences that are hard to learn from
+- Sub-word strikes a balance between vocabulary size and sequence length
 
 **Example:**
 ```
 "Transformers are" → [8291, 364, 389]
 ```
 
-Each token maps to embedding vector via lookup table.
+Each token maps to an embedding vector via a lookup table.
 
 ---
 
@@ -48,13 +48,13 @@ Each token maps to embedding vector via lookup table.
 
 ### Token Embeddings
 
-Lookup table $W_E \in \mathbb{R}^{d_{\text{vocab}} \times d_{\text{model}}}$. For token $t$, embedding is $W_E[t] \in \mathbb{R}^{d_{\text{model}}}$.
+Simple lookup table $W_E \in \mathbb{R}^{d_{\text{vocab}} \times d_{\text{model}}}$. For token $t$, the embedding is just $W_E[t] \in \mathbb{R}^{d_{\text{model}}}$.
 
 For GPT-2: $d_{\text{vocab}} = 50257$, $d_{\text{model}} = 768$.
 
 ### Positional Embeddings
 
-Absolute position encoding via learned lookup table $W_P \in \mathbb{R}^{n_{\text{ctx}} \times d_{\text{model}}}$.
+Since attention has no notion of position (it's permutation-invariant), we need to explicitly encode where each token sits in the sequence. GPT-2 uses a learned lookup table $W_P \in \mathbb{R}^{n_{\text{ctx}} \times d_{\text{model}}}$.
 
 Position $i$ gets embedding $W_P[i]$. Context length $n_{\text{ctx}} = 1024$ for GPT-2.
 
@@ -64,7 +64,7 @@ $$
 e_i = W_E[\text{token}_i] + W_P[i]
 $$
 
-This initialization feeds into the residual stream.
+This sum initializes the residual stream that flows through the network.
 
 ---
 
@@ -72,7 +72,7 @@ This initialization feeds into the residual stream.
 
 ### Single-Head Attention
 
-Core operation: for each position, compute weighted average of all previous positions' values.
+The core operation: for each position, compute a weighted average of all previous positions' values.
 
 **Step 1: Compute Q, K, V**
 
@@ -92,13 +92,13 @@ $$
 S = \frac{QK^T}{\sqrt{d_{\text{head}}}}
 $$
 
-Scaling by $\sqrt{d_{\text{head}}}$ prevents scores from growing large (which would make softmax saturate).
+Scaling by $\sqrt{d_{\text{head}}}$ prevents scores from growing too large, which would make softmax saturate and kill gradients.
 
-**Why this scaling?** If $Q, K$ have zero mean and unit variance, then $QK^T$ has variance $d_{\text{head}}$. Dividing by $\sqrt{d_{\text{head}}}$ normalizes to unit variance.
+**Why this scaling?** If $Q$ and $K$ have zero mean and unit variance, then $QK^T$ has variance $d_{\text{head}}$. Dividing by $\sqrt{d_{\text{head}}}$ normalizes back to unit variance.
 
 **Step 3: Causal masking**
 
-Set $S_{ij} = -\infty$ for $j > i$ (future positions). After softmax, these become 0.
+Set $S_{ij} = -\infty$ for $j > i$ (future positions). After softmax, these become 0, preventing the model from "cheating" by looking ahead.
 
 $$
 S_{\text{masked}}[i, j] = \begin{cases}
@@ -121,15 +121,15 @@ $$
 \text{out} = A V \in \mathbb{R}^{n \times d_{\text{head}}}
 $$
 
-This is a weighted average of value vectors, where weights come from attention pattern.
+This gives us a weighted average of value vectors, where the weights come from the attention pattern.
 
 **Geometric interpretation:**
 
-Query at position $i$ "asks a question". Keys at positions $1, \ldots, i$ "answer" by computing similarity scores. Softmax converts scores to probabilities. Values are "information to retrieve", weighted by these probabilities.
+Think of it like this - the query at position $i$ "asks a question". Keys at positions $1, \ldots, i$ "answer" by computing similarity scores with the query. Softmax converts these scores to probabilities. Values contain the actual "information to retrieve", which gets weighted by these probabilities.
 
 ### Multi-Head Attention
 
-Run $h$ attention heads in parallel, concatenate outputs, project back to $d_{\text{model}}$.
+Run $h$ attention heads in parallel, concatenate their outputs, and project back to $d_{\text{model}}$.
 
 $$
 \text{head}_k = \text{Attention}(x W_Q^{(k)}, x W_K^{(k)}, x W_V^{(k)})
@@ -145,12 +145,12 @@ For GPT-2: $h = 12$ heads, $d_{\text{head}} = 64$, so $h \cdot d_{\text{head}} =
 
 **Why multi-head?**
 
-Different heads can attend to different patterns:
-- Head 1: previous token (local context)
-- Head 2: nouns in sentence (syntactic patterns)
-- Head 3: subject of sentence (long-range dependencies)
+Different heads can specialize in different patterns. For example:
+- Head 1 might focus on the previous token (local context)
+- Head 2 might look for nouns in the sentence (syntactic patterns)
+- Head 3 might track the subject across long distances (long-range dependencies)
 
-Each head learns different features independently, then combines via $W_O$.
+Each head learns different features independently, then $W_O$ combines them all together.
 
 ---
 
@@ -179,13 +179,13 @@ Smooth approximation: $\text{GELU}(x) \approx x \cdot \sigma(1.702x)$ where $\si
 
 **Why GELU instead of ReLU?**
 
-GELU is smooth (differentiable everywhere), has non-zero gradient for negative values (prevents dead neurons), empirically works better for transformers.
+GELU is smooth (differentiable everywhere), has non-zero gradient for negative values (prevents dead neurons), and empirically works better for transformers. It's basically a smoother version of ReLU that models learned to prefer.
 
 ---
 
 ## Layer Normalization
 
-Normalize activations to zero mean, unit variance. Apply learned scale and shift.
+Normalizes activations to zero mean and unit variance, then applies learned scale and shift parameters.
 
 $$
 \text{LayerNorm}(x) = \gamma \odot \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} + \beta
@@ -204,21 +204,21 @@ x = x + Attention(LayerNorm(x))
 x = x + MLP(LayerNorm(x))
 ```
 
-This is "pre-norm" architecture (normalize before the layer). Alternative is "post-norm" (normalize after).
+This is "pre-norm" architecture - we normalize before the layer rather than after. Turns out this is more stable for deep networks.
 
 **Why LayerNorm?**
 
-Stabilizes training by keeping activation magnitudes consistent. Without it, deep networks suffer from vanishing/exploding gradients.
+Without it, deep networks suffer from vanishing or exploding gradients. LayerNorm keeps activation magnitudes consistent across layers, which stabilizes training.
 
 **Why not BatchNorm?**
 
-BatchNorm normalizes across the batch dimension, depends on batch statistics. LayerNorm normalizes across features, works with any batch size (including 1).
+BatchNorm normalizes across the batch dimension and depends on batch statistics. LayerNorm normalizes across features and works with any batch size (even 1), which is crucial for generation.
 
 ---
 
 ## Residual Stream
 
-Core architectural principle: information flows straight through the network via additions.
+This is the core architectural principle: information flows straight through the network via additions.
 
 **Transformer block:**
 
@@ -230,13 +230,13 @@ $$
 x'' = x' + \text{MLP}(\text{LayerNorm}(x'))
 $$
 
-**Why residuals?**
+**Why residuals matter:**
 
-1. **Gradient flow**: Backprop has direct path to input (avoids vanishing gradients in deep networks)
-2. **Easier optimization**: Model can learn identity function trivially (do nothing), then incrementally add features
-3. **Information preservation**: Early layer features always accessible to later layers
+1. **Gradient flow**: Backprop has a direct path to the input, which avoids vanishing gradients in deep networks
+2. **Easier optimization**: The model can learn the identity function trivially (just do nothing), then incrementally add features
+3. **Information preservation**: Early layer features are always accessible to later layers
 
-Think of residual stream as a "tape" that each layer reads from and writes to. Layers communicate by adding to the stream.
+Think of the residual stream as a "tape" that each layer reads from and writes to. Layers communicate by adding their contributions to this stream.
 
 ---
 
@@ -244,10 +244,10 @@ Think of residual stream as a "tape" that each layer reads from and writes to. L
 
 **Forward pass:**
 
-1. Token embeddings + positional embeddings → residual stream initialization
+1. Token embeddings + positional embeddings → initialize residual stream
 2. For each of $L$ transformer blocks:
-   - Apply LayerNorm, run multi-head attention, add to stream
-   - Apply LayerNorm, run MLP, add to stream
+   - Apply LayerNorm, run multi-head attention, add result to stream
+   - Apply LayerNorm, run MLP, add result to stream
 3. Final LayerNorm
 4. Unembed: project to vocabulary via $W_U \in \mathbb{R}^{d_{\text{model}} \times d_{\text{vocab}}}$
 5. Get logits $\in \mathbb{R}^{n \times d_{\text{vocab}}}$
@@ -441,23 +441,23 @@ $$
 H(p, q) = -\sum_{x} p(x) \log q(x)
 $$
 
-Also equivalent to KL divergence plus entropy:
+This is also equivalent to KL divergence plus entropy:
 
 $$
 H(p, q) = D_{\text{KL}}(p \| q) + H(p)
 $$
 
-Since $H(p)$ is constant (doesn't depend on model), minimizing cross-entropy = minimizing KL divergence.
+Since $H(p)$ is constant (doesn't depend on the model), minimizing cross-entropy is the same as minimizing KL divergence.
 
-**For language modeling:** True distribution $p$ is one-hot at correct token $x_{i+1}$. So $p(x_{i+1}) = 1$, $p(k) = 0$ for $k \neq x_{i+1}$.
+**For language modeling:** The true distribution $p$ is one-hot at the correct token $x_{i+1}$. So $p(x_{i+1}) = 1$ and $p(k) = 0$ for all $k \neq x_{i+1}$.
 
-Cross-entropy simplifies:
+Cross-entropy simplifies beautifully:
 
 $$
 H(p, q) = -\sum_{k} p(k) \log q(k) = -1 \cdot \log q(x_{i+1}) = -\log q(x_{i+1})
 $$
 
-where $q(x_{i+1}) = \text{softmax}(\text{logits}_i)[x_{i+1}]$ is model's predicted probability for correct token.
+where $q(x_{i+1}) = \text{softmax}(\text{logits}_i)[x_{i+1}]$ is the model's predicted probability for the correct token.
 
 **Average over sequence** $[x_1, \ldots, x_n]$:
 
@@ -465,7 +465,7 @@ $$
 \mathcal{L} = -\frac{1}{n-1} \sum_{i=1}^{n-1} \log p_\theta(x_{i+1} \mid x_1, \ldots, x_i)
 $$
 
-Minimizing this = maximizing log-likelihood of data.
+Minimizing this is equivalent to maximizing the log-likelihood of the data.
 
 ### Optimization
 
@@ -506,32 +506,32 @@ def train(model, data_loader, epochs=10):
 
 ### Greedy Sampling
 
-Take most likely token at each step:
+Take the most likely token at each step:
 
 $$
 x_{t+1} = \arg\max_i \; \text{logits}_t[i]
 $$
 
-**Problem:** Deterministic, repetitive. Gets stuck in loops.
+**Problem:** This is completely deterministic and repetitive. The model often gets stuck in loops, generating the same phrases over and over.
 
 ### Temperature Sampling
 
-Scale logits before softmax:
+Scale the logits before applying softmax:
 
 $$
 p(x) = \text{softmax}(\text{logits} / T)
 $$
 
-where $T \in (0, \infty)$ is temperature.
+where $T \in (0, \infty)$ is the temperature parameter.
 
 **Effect:**
-- $T \to 0$: sharpens distribution (approaches greedy)
+- $T \to 0$: sharpens the distribution (approaches greedy)
 - $T = 1$: unchanged distribution
 - $T \to \infty$: uniform distribution (maximum randomness)
 
 **Why it works:**
 
-Scaling logits changes relative probabilities. If $\text{logits} = [5, 3, 1]$:
+Scaling logits changes the relative probabilities. If $\text{logits} = [5, 3, 1]$:
 - $T = 0.5$: $[10, 6, 2] \to$ probabilities $[0.997, 0.003, 0.000]$ (sharp)
 - $T = 1.0$: $[5, 3, 1] \to$ probabilities $[0.843, 0.155, 0.002]$ (original)
 - $T = 2.0$: $[2.5, 1.5, 0.5] \to$ probabilities $[0.666, 0.242, 0.091]$ (smooth)
@@ -544,7 +544,7 @@ def sample_with_temperature(logits, T=1.0):
 
 ### Top-k Sampling
 
-Only sample from $k$ most likely tokens. Set all other logits to $-\infty$.
+Only sample from the $k$ most likely tokens. Set all other logits to $-\infty$.
 
 $$
 \text{logits}'[i] = \begin{cases}
@@ -557,7 +557,7 @@ Then apply softmax to $\text{logits}'$ and sample.
 
 **Why it works:**
 
-Prevents sampling from long tail of low-probability tokens that might be nonsensical. Keeps diversity while avoiding garbage.
+This prevents sampling from the long tail of low-probability tokens that might be nonsensical. It keeps diversity while avoiding garbage tokens.
 
 ```python
 def sample_top_k(logits, k=50):
@@ -569,7 +569,7 @@ def sample_top_k(logits, k=50):
 
 ### Top-p Sampling (Nucleus)
 
-Sample from smallest set of tokens whose cumulative probability exceeds $p$.
+Sample from the smallest set of tokens whose cumulative probability exceeds $p$.
 
 **Algorithm:**
 1. Sort tokens by probability (descending)
@@ -579,7 +579,7 @@ Sample from smallest set of tokens whose cumulative probability exceeds $p$.
 
 **Why better than top-k?**
 
-Adaptive: uses fewer tokens when distribution is sharp (model is confident), more tokens when distribution is flat (model is uncertain).
+It's adaptive - uses fewer tokens when the distribution is sharp (model is confident), and more tokens when the distribution is flat (model is uncertain).
 
 ```python
 def sample_top_p(logits, p=0.9):
@@ -602,20 +602,20 @@ def sample_top_p(logits, p=0.9):
 Maintain $k$ most likely sequences at each step.
 
 **Algorithm:**
-1. Start with $k$ beams (initially just start token)
+1. Start with $k$ beams (initially just the start token)
 2. For each beam, compute scores for all possible next tokens
-3. Keep top $k$ beam-token pairs by cumulative log probability
+3. Keep the top $k$ beam-token pairs by cumulative log probability
 4. Repeat until max length or all beams end
 
 **Scoring:**
 
-For beam with sequence $[x_1, \ldots, x_t]$ and next token $x_{t+1}$:
+For a beam with sequence $[x_1, \ldots, x_t]$ and next token $x_{t+1}$:
 
 $$
 \text{score}([x_1, \ldots, x_{t+1}]) = \sum_{i=1}^{t+1} \log p(x_i \mid x_{<i})
 $$
 
-Often use length normalization:
+Often use length normalization to avoid bias toward shorter sequences:
 
 $$
 \text{score} = \frac{1}{|x|^\alpha} \sum_{i=1}^{|x|} \log p(x_i \mid x_{<i})
@@ -625,7 +625,7 @@ where $\alpha \in [0, 1]$ (typically 0.6-0.7).
 
 **Why beam search?**
 
-Greedy picks best token at each step (local optimum). Beam search explores multiple hypotheses simultaneously, often finds better global solutions.
+Greedy picks the best token at each step, which only finds a local optimum. Beam search explores multiple hypotheses simultaneously and often finds better global solutions.
 
 **Tradeoff:** More computation (tracking $k$ beams), but higher quality outputs.
 
@@ -674,7 +674,7 @@ train neural networks. The transformer architecture is a neural network
 architecture that is used to train neural networks. The transformer
 ```
 
-Repetitive. Gets stuck in loops.
+Clearly repetitive - it gets stuck in a loop.
 
 ---
 
@@ -690,7 +690,7 @@ enables better context understanding and has revolutionized natural language
 processing tasks.
 ```
 
-More diverse, coherent.
+Much more diverse and coherent.
 
 ---
 
@@ -706,33 +706,15 @@ glowed in the moonlight, and strange creatures that spoke in riddles. She
 knew this place would change her life forever.
 ```
 
-Creative, maintains coherence.
-
----
-
-## Links & Resources
-
-**Original Paper:**
-- [Attention Is All You Need](https://arxiv.org/abs/1706.03762) (Vaswani et al., 2017)
-
-**GPT Series:**
-- [GPT-2 Paper](https://d4mucfpksywv.cloudfront.net/better-language-models/language_models_are_unsupervised_multitask_learners.pdf) (Radford et al., 2019)
-- [GPT-3 Paper](https://arxiv.org/abs/2005.14165) (Brown et al., 2020)
-
-**Implementations & Tutorials:**
-- [The Annotated Transformer](http://nlp.seas.harvard.edu/2018/04/03/attention.html) (Rush et al.)
-- [minGPT](https://github.com/karpathy/minGPT) (Karpathy)
-- [nanoGPT](https://github.com/karpathy/nanoGPT) (Karpathy)
-
-**Deep Dives:**
-- [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/) (Alammar)
-- [Transformer Circuits Thread](https://transformer-circuits.pub/) (Anthropic)
+Creative while maintaining coherence - this combination works well.
 
 ---
 
 ## KV Cache
 
-**Problem:** During generation, we recompute attention for all previous tokens at every step. Wasteful.
+Here's a practical optimization that makes generation way faster.
+
+**Problem:** During generation, we recompute attention for all previous tokens at every step. This is incredibly wasteful since most of that computation hasn't changed.
 
 For token $t$, attention computes:
 
@@ -746,22 +728,22 @@ $$
 
 At step $t+1$, we compute $K_{1:t+1}$ and $V_{1:t+1}$ from scratch. But $K_{1:t}$ and $V_{1:t}$ haven't changed!
 
-**Solution:** Cache previous keys and values.
+**Solution:** Cache the previous keys and values.
 
 At step $t$:
 1. Load cached $K_{1:t-1}$, $V_{1:t-1}$ from memory
-2. Compute only $K_t = x_t W_K$, $V_t = x_t W_V$
+2. Compute only the new $K_t = x_t W_K$, $V_t = x_t W_V$
 3. Concatenate: $K_{1:t} = [K_{1:t-1}; K_t]$, $V_{1:t} = [V_{1:t-1}; V_t]$
-4. Store updated cache
+4. Store the updated cache
 5. Compute attention as normal
 
 **Complexity:**
 - Without cache: $O(t \cdot d_{\text{model}})$ per step → $O(T^2 \cdot d_{\text{model}})$ total for sequence length $T$
 - With cache: $O(d_{\text{model}})$ per step → $O(T \cdot d_{\text{model}})$ total
 
-**Memory tradeoff:** Store $2 \times L \times T \times d_{\text{model}}$ values (keys + values, all layers, all positions). For GPT-2: $2 \times 12 \times 1024 \times 768 \approx 19M$ floats per sequence.
+**Memory tradeoff:** We need to store $2 \times L \times T \times d_{\text{model}}$ values (keys + values, all layers, all positions). For GPT-2: $2 \times 12 \times 1024 \times 768 \approx 19M$ floats per sequence.
 
-Worth it for generation (which is sequential). Not needed for training (which processes full sequences in parallel).
+Worth it for generation (which is sequential). Not needed for training (which processes full sequences in parallel anyway).
 
 ```python
 class AttentionWithCache(nn.Module):
@@ -833,3 +815,23 @@ def generate_with_cache(model, prompt_tokens, max_len=50):
 
     return tokens
 ```
+
+---
+
+## Links & Resources
+
+**Original Paper:**
+- [Attention Is All You Need](https://arxiv.org/abs/1706.03762) (Vaswani et al., 2017)
+
+**GPT Series:**
+- [GPT-2 Paper](https://d4mucfpksywv.cloudfront.net/better-language-models/language_models_are_unsupervised_multitask_learners.pdf) (Radford et al., 2019)
+- [GPT-3 Paper](https://arxiv.org/abs/2005.14165) (Brown et al., 2020)
+
+**Implementations & Tutorials:**
+- [The Annotated Transformer](http://nlp.seas.harvard.edu/2018/04/03/attention.html) (Rush et al.)
+- [minGPT](https://github.com/karpathy/minGPT) (Karpathy)
+- [nanoGPT](https://github.com/karpathy/nanoGPT) (Karpathy)
+
+**Deep Dives:**
+- [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/) (Alammar)
+- [Transformer Circuits Thread](https://transformer-circuits.pub/) (Anthropic)
