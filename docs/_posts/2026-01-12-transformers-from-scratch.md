@@ -3,8 +3,6 @@ title: "Transformers from Scratch"
 date: 2026-01-12
 categories: [notes]
 tags: [ml, transformer, attention, gpt, nlp]
-toc: true
-toc_sticky: true
 math: true
 ---
 

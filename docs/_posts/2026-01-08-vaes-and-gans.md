@@ -3,8 +3,6 @@ title: "VAEs and GANs on CelebA"
 date: 2026-01-08
 categories: [notes]
 tags: [ml, vae, gan, generative-models, latent-space]
-toc: true
-toc_sticky: true
 math: true
 ---
 

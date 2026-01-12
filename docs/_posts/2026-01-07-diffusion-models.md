@@ -3,8 +3,6 @@ title: "Diffusion Models: Mathematical Foundations"
 date: 2026-01-07
 categories: [notes]
 tags: [ml, diffusion, generative-models, score-matching]
-toc: true
-toc_sticky: true
 math: true
 ---
 

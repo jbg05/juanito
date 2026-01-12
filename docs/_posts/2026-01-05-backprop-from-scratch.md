@@ -3,8 +3,6 @@ title: "MNIST from Scratch (Backprop, Autodiff, SGD)"
 date: 2026-01-05
 categories: [notes]
 tags: [ml, backprop, autodiff, mnist]
-toc: true
-toc_sticky: true
 ---
 
 > ## 🚧 Reminder / Next steps (don't forget)
