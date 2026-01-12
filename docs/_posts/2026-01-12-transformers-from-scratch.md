@@ -4,21 +4,11 @@ date: 2026-01-12
 categories: [notes]
 tags: [ml, transformer, attention, gpt, nlp]
 math: true
+toc: true
+toc_sticky: true
 ---
 
-## Intro
-
-Built GPT-2 architecture from scratch. Implemented multi-head attention, position embeddings, residual stream, all core components. Trained on text data, explored sampling strategies.
-
-What's covered:
-- Multi-head self-attention mechanism
-- Positional embeddings (learned)
-- Residual connections and layer normalization
-- MLP blocks with GELU
-- Autoregressive text generation
-- Sampling methods (greedy, temperature, top-k, top-p, beam search)
-
-All code runs on GPU, generates coherent text.
+Built GPT-2 architecture from scratch. Implemented attention, residual stream, position embeddings. Trained model, explored sampling strategies.
 
 ## The Big Picture
 

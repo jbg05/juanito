@@ -4,21 +4,11 @@ date: 2026-01-08
 categories: [notes]
 tags: [ml, vae, gan, generative-models, latent-space]
 math: true
+toc: true
+toc_sticky: true
 ---
 
-## Intro
-
-Built VAEs and DCGANs from scratch on CelebA-64. Trained models to generate faces, explored latent space interpolation, analyzed what these representations capture. Both approaches work but make different tradeoffs.
-
-What's covered:
-- Custom transposed convolutions
-- Standard autoencoder baseline
-- Full VAE with reparameterization
-- DCGAN with adversarial training
-- Latent space interpolation (linear, spherical, rotation)
-- PCA analysis of learned representations
-
-All code trained on CUDA, models converged clean.
+Built VAEs and DCGANs from scratch on CelebA-64. Implemented transposed convolutions, reparameterization trick, adversarial training. Explored latent interpolation and PCA.
 
 ## Dataset
 

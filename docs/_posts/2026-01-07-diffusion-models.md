@@ -4,7 +4,11 @@ date: 2026-01-07
 categories: [notes]
 tags: [ml, diffusion, generative-models, score-matching]
 math: true
+toc: true
+toc_sticky: true
 ---
+
+Derived variational diffusion from ELBO. Forward process adds noise, reverse process learns to denoise. Covered noise schedules, score matching, three equivalent parameterizations.
 
 ## Background: ELBO and VAE
 
