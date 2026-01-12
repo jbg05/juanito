@@ -435,19 +435,37 @@ class Transformer(nn.Module):
 
 ### Loss Function
 
-Cross-entropy between predicted distribution and true next token.
+**General cross-entropy** between distributions $p$ (true) and $q$ (predicted):
 
-For sequence $[x_1, \ldots, x_n]$:
+$$
+H(p, q) = -\sum_{x} p(x) \log q(x)
+$$
+
+Also equivalent to KL divergence plus entropy:
+
+$$
+H(p, q) = D_{\text{KL}}(p \| q) + H(p)
+$$
+
+Since $H(p)$ is constant (doesn't depend on model), minimizing cross-entropy = minimizing KL divergence.
+
+**For language modeling:** True distribution $p$ is one-hot at correct token $x_{i+1}$. So $p(x_{i+1}) = 1$, $p(k) = 0$ for $k \neq x_{i+1}$.
+
+Cross-entropy simplifies:
+
+$$
+H(p, q) = -\sum_{k} p(k) \log q(k) = -1 \cdot \log q(x_{i+1}) = -\log q(x_{i+1})
+$$
+
+where $q(x_{i+1}) = \text{softmax}(\text{logits}_i)[x_{i+1}]$ is model's predicted probability for correct token.
+
+**Average over sequence** $[x_1, \ldots, x_n]$:
 
 $$
 \mathcal{L} = -\frac{1}{n-1} \sum_{i=1}^{n-1} \log p_\theta(x_{i+1} \mid x_1, \ldots, x_i)
 $$
 
-where $p_\theta(x_{i+1} \mid x_1, \ldots, x_i) = \text{softmax}(\text{logits}_i)[x_{i+1}]$.
-
-**Why this loss?**
-
-Minimizing cross-entropy = maximizing log-likelihood of the data. Equivalently, minimizing KL divergence between predicted distribution and true distribution (one-hot at correct token).
+Minimizing this = maximizing log-likelihood of data.
 
 ### Optimization
 
@@ -712,27 +730,106 @@ Creative, maintains coherence.
 
 ---
 
-## Takeaways
+## KV Cache
 
-Transformers revolutionized sequence modeling by replacing recurrence with attention. Key innovations:
+**Problem:** During generation, we recompute attention for all previous tokens at every step. Wasteful.
 
-**Attention mechanism:** Each position aggregates information from previous positions via learned weighted sums. Scalable parallelization (no sequential dependency like RNNs).
+For token $t$, attention computes:
 
-**Residual stream:** Information flows straight through with additions. Enables training very deep networks (GPT-3: 96 layers).
+$$
+Q_t = x_t W_Q, \quad K_{1:t} = x_{1:t} W_K, \quad V_{1:t} = x_{1:t} W_V
+$$
 
-**Position embeddings:** Simple learned lookup table works. Alternatives: sinusoidal (fixed), rotary (RoPE), ALiBi (attention bias).
+$$
+\text{out}_t = \text{softmax}\left(\frac{Q_t K_{1:t}^T}{\sqrt{d_{\text{head}}}}\right) V_{1:t}
+$$
 
-**Scaling laws:** Performance improves predictably with model size, data, compute. Bigger models consistently better.
+At step $t+1$, we compute $K_{1:t+1}$ and $V_{1:t+1}$ from scratch. But $K_{1:t}$ and $V_{1:t}$ haven't changed!
 
-**Architecture choices matter:**
-- Pre-norm vs post-norm (pre-norm more stable)
-- GELU vs ReLU (GELU empirically better)
-- Learned vs fixed positional embeddings (learned works for GPT-2)
+**Solution:** Cache previous keys and values.
 
-**Sampling strategies:**
-- Greedy: deterministic, repetitive
-- Temperature: controls randomness
-- Top-k/top-p: prevents sampling garbage tokens
-- Beam search: explores multiple hypotheses, higher quality
+At step $t$:
+1. Load cached $K_{1:t-1}$, $V_{1:t-1}$ from memory
+2. Compute only $K_t = x_t W_K$, $V_t = x_t W_V$
+3. Concatenate: $K_{1:t} = [K_{1:t-1}; K_t]$, $V_{1:t} = [V_{1:t-1}; V_t]$
+4. Store updated cache
+5. Compute attention as normal
 
-All code available in ARENA 3.0 exercises. Models train cleanly on GPU, generate coherent text with proper sampling.
+**Complexity:**
+- Without cache: $O(t \cdot d_{\text{model}})$ per step → $O(T^2 \cdot d_{\text{model}})$ total for sequence length $T$
+- With cache: $O(d_{\text{model}})$ per step → $O(T \cdot d_{\text{model}})$ total
+
+**Memory tradeoff:** Store $2 \times L \times T \times d_{\text{model}}$ values (keys + values, all layers, all positions). For GPT-2: $2 \times 12 \times 1024 \times 768 \approx 19M$ floats per sequence.
+
+Worth it for generation (which is sequential). Not needed for training (which processes full sequences in parallel).
+
+```python
+class AttentionWithCache(nn.Module):
+    def __init__(self, d_model, n_heads, d_head):
+        super().__init__()
+        self.d_head = d_head
+        self.n_heads = n_heads
+
+        self.W_Q = nn.Parameter(t.randn(n_heads, d_model, d_head) * 0.02)
+        self.W_K = nn.Parameter(t.randn(n_heads, d_model, d_head) * 0.02)
+        self.W_V = nn.Parameter(t.randn(n_heads, d_model, d_head) * 0.02)
+        self.W_O = nn.Parameter(t.randn(n_heads, d_head, d_model) * 0.02)
+
+        self.b_Q = nn.Parameter(t.zeros(n_heads, d_head))
+        self.b_K = nn.Parameter(t.zeros(n_heads, d_head))
+        self.b_V = nn.Parameter(t.zeros(n_heads, d_head))
+        self.b_O = nn.Parameter(t.zeros(d_model))
+
+        self.register_buffer("mask", t.tril(t.ones(1024, 1024)))
+
+    def forward(self, x, cache=None):
+        Q = einsum(x, self.W_Q, "b n d, h d dh -> b n h dh") + self.b_Q
+        K = einsum(x, self.W_K, "b n d, h d dh -> b n h dh") + self.b_K
+        V = einsum(x, self.W_V, "b n d, h d dh -> b n h dh") + self.b_V
+
+        if cache is not None:
+            K_cache, V_cache = cache
+            K = t.cat([K_cache, K], dim=1)
+            V = t.cat([V_cache, V], dim=1)
+
+        scores = einsum(Q, K, "b qi h dh, b ki h dh -> b h qi ki") / (self.d_head ** 0.5)
+
+        n = K.shape[1]
+        mask = self.mask[:n, :n]
+        scores = t.where(mask.bool(), scores, -1e9)
+
+        pattern = scores.softmax(dim=-1)
+        out = einsum(pattern, V, "b h qi ki, b ki h dh -> b qi h dh")
+        out = einsum(out, self.W_O, "b n h dh, h dh d -> b n d") + self.b_O
+
+        return out, (K, V)
+```
+
+Generation loop with cache:
+
+```python
+def generate_with_cache(model, prompt_tokens, max_len=50):
+    tokens = prompt_tokens
+    caches = [None] * len(model.blocks)
+
+    for _ in range(max_len):
+        x = model.embed(tokens) + model.pos_embed(tokens)
+
+        for i, block in enumerate(model.blocks):
+            x_norm = block.ln1(x)
+            attn_out, caches[i] = block.attn(x_norm[:, -1:], cache=caches[i])
+            x = t.cat([x[:, :-1], x[:, -1:] + attn_out], dim=1)
+
+            x_norm = block.ln2(x)
+            mlp_out = block.mlp(x_norm[:, -1:])
+            x = t.cat([x[:, :-1], x[:, -1:] + mlp_out], dim=1)
+
+        logits = model.unembed(model.ln_final(x[:, -1:]))
+        next_token = logits.argmax(dim=-1)
+        tokens = t.cat([tokens, next_token], dim=1)
+
+        if next_token == eos_token:
+            break
+
+    return tokens
+```
