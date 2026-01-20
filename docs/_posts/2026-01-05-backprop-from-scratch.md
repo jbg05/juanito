@@ -3,6 +3,7 @@ title: "MNIST from Scratch (Backprop, Autodiff, SGD)"
 date: 2026-01-05
 categories: [notes]
 tags: [ml, backprop, autodiff, mnist]
+math: true
 excerpt: "Built backprop and autodiff from scratch. Computational graphs, gradient tracking, trained on MNIST."
 ---
 
@@ -49,21 +50,21 @@ In general, we are working with tensors, where we might have something like `out
 - `x.shape = (2,)`
 - `y.shape = (4, 2)`
 
-Then what’s happening under the hood is NumPy **[broadcasts](https://docs.pytorch.org/docs/stable/notes/broadcasting.html)** `x` to some \(x_b\) which has the shape of \(y\), and then defines:
+Then what's happening under the hood is NumPy **[broadcasts](https://docs.pytorch.org/docs/stable/notes/broadcasting.html)** `x` to some $x_b$ which has the shape of $y$, and then defines:
 
 $$
 \text{out} = x_b + y.
 $$
 
-Now, how do we go from \(\frac{\partial L}{\partial x_b}\) to finding \(\frac{\partial L}{\partial x}\)?
+Now, how do we go from $\frac{\partial L}{\partial x_b}$ to finding $\frac{\partial L}{\partial x}$?
 
-Let \(x \in \mathbb{R}^d\) and let \(x_b\) be its broadcasted version with:
+Let $x \in \mathbb{R}^d$ and let $x_b$ be its broadcasted version with:
 
 $$
 x_b[i_1, \dots, i_k, j] = x[j].
 $$
 
-Let \(L = L(x_b)\). Then for each \(j\):
+Let $L = L(x_b)$. Then for each $j$:
 
 $$
 \frac{\partial L}{\partial x[j]}
@@ -124,7 +125,7 @@ def unbroadcast(broadcasted, original):
 
 Indeed, functions can be differentiable w.r.t. more than one input tensor, in which case we need multiple backward functions, one for each input argument.
 
-For example, we can write the backward functions for \(x*y\) w.r.t. argument 0 and 1 (i.e., \(x\) and \(y\) respectively):
+For example, we can write the backward functions for $x \cdot y$ w.r.t. argument 0 and 1 (i.e., $x$ and $y$ respectively):
 
 ```python
 def multiply_back0(grad_out, out, x, y):
@@ -456,7 +457,7 @@ sum = wrap_forward_fn(_sum)
 
 As part of backprop, we need to sort the nodes of our graph in **reverse topological order**.
 
-A **topological sort** is a graph traversal where each node \(v\) is visited only after all its dependencies are visited (for every directed edge from \(u\) to \(v\), \(u\) comes before \(v\) in the ordering).
+A **topological sort** is a graph traversal where each node $v$ is visited only after all its dependencies are visited (for every directed edge from $u$ to $v$, $u$ comes before $v$ in the ordering).
 
 We need the reverse of this, since we propagate backward and calculate gradients of nodes only after we have the gradients of their downstream dependencies.
 
@@ -493,8 +494,8 @@ def topological_sort(root, get_children):
 
 We can prove by induction that a cycle-free finite directed graph contains a topological ordering:
 
-- If \(N = 1\), it's trivially true.
-- If \(N > 1\), pick any node and follow outgoing edges until you reach a node with out-degree \(0\). This node must exist; otherwise you would either follow edges forever (contradicting finiteness) or revisit a node (contradicting acyclicity). Put this node first in your topological ordering, remove it from the graph, and apply topological sort to the remaining subgraph. By induction, that ordering exists. Prepending the removed node gives a topological ordering for all \(N\) vertices.
+- If $N = 1$, it's trivially true.
+- If $N > 1$, pick any node and follow outgoing edges until you reach a node with out-degree $0$. This node must exist; otherwise you would either follow edges forever (contradicting finiteness) or revisit a node (contradicting acyclicity). Put this node first in your topological ordering, remove it from the graph, and apply topological sort to the remaining subgraph. By induction, that ordering exists. Prepending the removed node gives a topological ordering for all $N$ vertices.
 
 With its existence in mind, we can now safely take a tensor and return a list of tensors that make up its computational graph, in reverse topological order.
 
@@ -512,7 +513,7 @@ def sorted_computational_graph(tensor):
 
 Now we're fully ready to write our backprop function, but I'll clarify one thing first.
 
-Let the final node be a tensor \(g \in \mathbb{R}^{d_1 \times \cdots \times d_k}\) (not necessarily scalar). To define “the” gradient, pick a weight tensor \(v\) with the same shape and define a scalar objective:
+Let the final node be a tensor $g \in \mathbb{R}^{d_1 \times \cdots \times d_k}$ (not necessarily scalar). To define "the" gradient, pick a weight tensor $v$ with the same shape and define a scalar objective:
 
 $$
 L \;=\; \langle g, v\rangle
@@ -528,9 +529,9 @@ $$
 \nabla_g L \;=\; v.
 $$
 
-So, in backprop, the **first** `grad_out` passed into the backward function at the end node \(g\) is exactly \(v\).
+So, in backprop, the **first** `grad_out` passed into the backward function at the end node $g$ is exactly $v$.
 
-Special case (default behavior): take \(v=\mathbf{1}\) (all ones, same shape as \(g\)), giving:
+Special case (default behavior): take $v=\mathbf{1}$ (all ones, same shape as $g$), giving:
 
 $$
 L = \sum_{i_1,\dots,i_k} g_{i_1,\dots,i_k} = g.sum(),
@@ -538,7 +539,7 @@ L = \sum_{i_1,\dots,i_k} g_{i_1,\dots,i_k} = g.sum(),
 \nabla_g L = \mathbf{1}.
 $$
 
-If you pass `end_grad`, you are explicitly choosing \(v := \mathrm{end\_grad}\) (i.e., the array you passed in).
+If you pass `end_grad`, you are explicitly choosing $v := \mathrm{end\_grad}$ (i.e., the array you passed in).
 
 ---
 
@@ -546,7 +547,7 @@ If you pass `end_grad`, you are explicitly choosing \(v := \mathrm{end\_grad}\) 
 
 The key idea in the code below is:
 
-- `grads[t]` stores the accumulated gradient \(\partial L/\partial t\) for each `Tensor` \(t\).
+- `grads[t]` stores the accumulated gradient $\partial L/\partial t$ for each `Tensor` $t$.
 - We process nodes from the end node backward.
 - At each node, we push gradients to its parents using the registered backward functions.
 - When we hit a leaf, we store (and accumulate) into `node.grad`.
@@ -595,7 +596,7 @@ def exp_back(grad_out: Arr, out: Arr, x: Arr) -> Arr:
 BACK_FUNCS.add_back_func(np.exp, 0, exp_back)
 ```
 
-Reshape is a little different. The operation that takes us from \(\partial L/\partial x_r\) to \(\partial L/\partial x\) is exactly the inverse of the forward reshape operation that gave us \(x_r\) from \(x\), so we want to take `grad_out` and get it back to the shape of `x`.
+Reshape is a little different. The operation that takes us from $\partial L/\partial x_r$ to $\partial L/\partial x$ is exactly the inverse of the forward reshape operation that gave us $x_r$ from $x$, so we want to take `grad_out` and get it back to the shape of `x`.
 
 ```python
 def reshape_back(grad_out: Arr, out: Arr, x: Arr, new_shape: tuple) -> Arr:
@@ -617,16 +618,16 @@ BACK_FUNCS.add_back_func(np.transpose, 0, permute_back)
 
 Now, there are cases where the output might be smaller than the input, like when using the sum function.
 
-Let \(x \in \mathbb{R}^{n_1 \times \cdots \times n_k}\). Fix axes \(D \subseteq \{1,\dots,k\}\) to sum over, and define:
+Let $x \in \mathbb{R}^{n_1 \times \cdots \times n_k}$. Fix axes $D \subseteq \\{1,\dots,k\\}$ to sum over, and define:
 
 $$
 y=\mathrm{sum}(x;D),\qquad 
 y_{j}=\sum_{i\in I(j)} x_i,
 $$
 
-where \(j\) indexes the surviving coordinates (axes \(\notin D\)), and \(I(j)\) is the set of full indices \(i=(i_1,\dots,i_k)\) that collapse to the same \(j\) after summing over \(D\).
+where $j$ indexes the surviving coordinates (axes $\notin D$), and $I(j)$ is the set of full indices $i=(i_1,\dots,i_k)$ that collapse to the same $j$ after summing over $D$.
 
-Take any scalar loss \(L=L(y)\). For any entry \(x_i\) with \(i\mapsto j\),
+Take any scalar loss $L=L(y)$. For any entry $x_i$ with $i\mapsto j$,
 
 $$
 \frac{\partial y_{j}}{\partial x_i}=1,\qquad 
@@ -641,16 +642,16 @@ $$
 =\frac{\partial L}{\partial y_j}.
 $$
 
-So every element \(x_i\) that was included in the same sum producing \(y_j\) receives the *same* upstream gradient value \(\big(\partial L/\partial y_j\big)\). In other words: the gradient \(\partial L/\partial y\) must be *replicated* across the axes that were summed out, to match the shape of \(x\). This replication is exactly a broadcast.
+So every element $x_i$ that was included in the same sum producing $y_j$ receives the *same* upstream gradient value $\big(\partial L/\partial y_j\big)$. In other words: the gradient $\partial L/\partial y$ must be *replicated* across the axes that were summed out, to match the shape of $x$. This replication is exactly a broadcast.
 
-Recall that when we looked at broadcasting, the backward operation was summing over the broadcasted dimensions: broadcasting copies values, creating multiple identical computational paths, so gradients add across those copies. Summation is the “reverse”: the forward pass adds many \(x\)-entries into one \(y\)-entry, and the backward pass sends the same \(\partial L/\partial y_j\) back to *each* contributing \(x_i\). Hence, backward(\(\sum\)) = broadcast.
+Recall that when we looked at broadcasting, the backward operation was summing over the broadcasted dimensions: broadcasting copies values, creating multiple identical computational paths, so gradients add across those copies. Summation is the "reverse": the forward pass adds many $x$-entries into one $y$-entry, and the backward pass sends the same $\partial L/\partial y_j$ back to *each* contributing $x_i$. Hence, backward($\sum$) = broadcast.
 
 Implementation-wise, you can view `sum_back` as two purely shape-level steps:
 
-- **(A) Reinsert summed axes when `keepdim=False`:** forward removed axes \(D\); backward inserts them back as size-1 dimensions so shapes are aligned.
-- **(B) Broadcast to \(x\)’s full shape:** replicate \(\partial L/\partial y\) along exactly those axes \(D\), yielding an array with shape `x.shape`.
+- **(A) Reinsert summed axes when `keepdim=False`:** forward removed axes $D$; backward inserts them back as size-1 dimensions so shapes are aligned.
+- **(B) Broadcast to $x$'s full shape:** replicate $\partial L/\partial y$ along exactly those axes $D$, yielding an array with shape `x.shape`.
 
-If `dim=None`, then \(y\) is a scalar and \(\partial L/\partial y\) is also scalar; broadcasting a scalar to `x`’s shape is still the same rule.
+If `dim=None`, then $y$ is a scalar and $\partial L/\partial y$ is also scalar; broadcasting a scalar to `x`'s shape is still the same rule.
 
 
 
@@ -670,8 +671,8 @@ BACK_FUNCS.add_back_func(_sum, 0, sum_back)
 
 Now: elementwise adding, subtracting, and dividing.
 
-Notice that in general, for \( \text{out} = f(x,y) \) and scalar loss \( L = L(\text{out}) \), with
-\( g := \frac{\partial L}{\partial \text{out}} \), the chain rule gives:
+Notice that in general, for $\text{out} = f(x,y)$ and scalar loss $L = L(\text{out})$, with
+$g := \frac{\partial L}{\partial \text{out}}$, the chain rule gives:
 
 $$
 \frac{\partial L}{\partial x}
@@ -683,7 +684,7 @@ $$
 \mathrm{unbroadcast}\!\left(g \odot \frac{\partial f}{\partial y}(x,y),\, y\right).
 $$
 
-For example, in elementwise division \( \text{out} = \frac{x}{y} \):
+For example, in elementwise division $\text{out} = \frac{x}{y}$:
 
 $$
 \frac{\partial L}{\partial x}
@@ -718,11 +719,11 @@ BACK_FUNCS.add_back_func(
 
 Now, the `maximum` function is pretty interesting.
 
-For \( \max(x,y) \), the derivative w.r.t. \(x\) is \(1\) when \(x>y\) and \(0\) when \(x<y\). The only tricky case is \(x=y\).
+For $\max(x,y)$, the derivative w.r.t. $x$ is $1$ when $x>y$ and $0$ when $x<y$. The only tricky case is $x=y$.
 
-At a tie, `max` is **not differentiable** in the strict sense (there isn’t a unique slope). But it *is* subdifferentiable: any “split” of the upstream gradient between the two arguments that sums to \(1\) is a valid choice.
+At a tie, `max` is **not differentiable** in the strict sense (there isn't a unique slope). But it *is* subdifferentiable: any "split" of the upstream gradient between the two arguments that sums to $1$ is a valid choice.
 
-Why should the splits sum to \(1\)? Intuitively, when \(x=y\), the function \(\max(x,y)\) behaves like the identity along the line \(x=y\): if you increase both inputs by the same small amount \(t\), the output increases by \(t\). So the total sensitivity to moving along \((1,1)\) should be \(1\). That corresponds to choosing partials \(\alpha\) and \(1-\alpha\) with \(\alpha\in[0,1]\). A common convention is \(\alpha=\tfrac12\), i.e. split evenly.
+Why should the splits sum to $1$? Intuitively, when $x=y$, the function $\max(x,y)$ behaves like the identity along the line $x=y$: if you increase both inputs by the same small amount $t$, the output increases by $t$. So the total sensitivity to moving along $(1,1)$ should be $1$. That corresponds to choosing partials $\alpha$ and $1-\alpha$ with $\alpha\in[0,1]$. A common convention is $\alpha=\tfrac12$, i.e. split evenly.
 
 With `maximum`, `relu` follows.
 
@@ -745,8 +746,8 @@ def relu(x: Tensor) -> Tensor:
 
 Finally, we will take a look at 2D matrix multiplication and its backward methods (our in-house version of `torch.matmul`).
 
-Let \(X\in\mathbb{R}^{n\times m}\), \(Y\in\mathbb{R}^{m\times k}\), and
-\(M = XY \in \mathbb{R}^{n\times k}\), with \(L = L(M)\).
+Let $X\in\mathbb{R}^{n\times m}$, $Y\in\mathbb{R}^{m\times k}$, and
+$M = XY \in \mathbb{R}^{n\times k}$, with $L = L(M)$.
 Define the upstream gradient
 
 $$
@@ -754,7 +755,7 @@ G := \frac{\partial L}{\partial M}\in\mathbb{R}^{n\times k}
 \quad\text{(this is `grad_out`).}
 $$
 
-Elementwise, for \(p\in[n]\) and \(q\in[k]\),
+Elementwise, for $p\in[n]$ and $q\in[k]$,
 
 $$
 M_{pq}=\sum_{r=1}^m X_{pr}Y_{rq}.
@@ -762,9 +763,9 @@ $$
 
 ---
 
-## Gradient w.r.t. \(X\)
+## Gradient w.r.t. $X$
 
-Fix \((i,j)\). By the chain rule:
+Fix $(i,j)$. By the chain rule:
 
 $$
 \frac{\partial L}{\partial X_{ij}}
@@ -775,10 +776,10 @@ $$
 \Big(\sum_{r}X_{pr}Y_{rq}\Big).
 $$
 
-Use \(\dfrac{\partial X_{pr}}{\partial X_{ij}}=\mathbf{1}\{p=i,r=j\}\):
+Use $\dfrac{\partial X_{pr}}{\partial X_{ij}}=\mathbf{1}\\{p=i,r=j\\}$:
 
 $$
-\frac{\partial M_{pq}}{\partial X_{ij}} = Y_{jq}\,\mathbf{1}\{p=i\}.
+\frac{\partial M_{pq}}{\partial X_{ij}} = Y_{jq}\,\mathbf{1}\\{p=i\\}.
 $$
 
 So
@@ -797,9 +798,9 @@ $$
 
 ---
 
-## Gradient w.r.t. \(Y\)
+## Gradient w.r.t. $Y$
 
-Fix \((j,q)\). By the chain rule:
+Fix $(j,q)$. By the chain rule:
 
 $$
 \frac{\partial L}{\partial Y_{jq}}
@@ -810,10 +811,10 @@ $$
 \Big(\sum_{r}X_{pr}Y_{rt}\Big).
 $$
 
-Use \(\dfrac{\partial Y_{rt}}{\partial Y_{jq}}=\mathbf{1}\{r=j,t=q\}\):
+Use $\dfrac{\partial Y_{rt}}{\partial Y_{jq}}=\mathbf{1}\\{r=j,t=q\\}$:
 
 $$
-\frac{\partial M_{pt}}{\partial Y_{jq}}=X_{pj}\,\mathbf{1}\{t=q\}.
+\frac{\partial M_{pt}}{\partial Y_{jq}}=X_{pj}\,\mathbf{1}\\{t=q\\}.
 $$
 
 So

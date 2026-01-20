@@ -404,7 +404,7 @@ These faces are completely generated from random noise - not reconstructions. Th
 
 **Principal Component Analysis** finds the directions of maximum variance in high-dimensional data.
 
-Given $N$ data points $\{z_1, z_2, \ldots, z_N\}$ where each $z_i \in \mathbb{R}^d$ (in our case, $d=100$ latent dimensions), we want to find a lower-dimensional representation that captures most of the variation.
+Given $N$ data points $\\{z_1, z_2, \ldots, z_N\\}$ where each $z_i \in \mathbb{R}^d$ (in our case, $d=100$ latent dimensions), we want to find a lower-dimensional representation that captures most of the variation.
 
 Center the data:
 
