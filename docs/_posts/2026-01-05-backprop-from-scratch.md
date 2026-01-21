@@ -9,16 +9,6 @@ excerpt: "Built backprop and autodiff from scratch. Computational graphs, gradie
 
 Implemented backpropagation and automatic differentiation without any frameworks. Built the whole thing - computational graph tracking, backward functions, topological sort. Trained an MLP on MNIST to make sure it works.
 
-> ## 🚧 Reminder / Next steps (don't forget)
-> You paused here — come back and build the *cool* extensions:
->
-> - [ ] **Central-difference gradcheck** (verify your autograd is correct)
-> - [ ] **Conv2d layer** + swap MLP → small CNN for MNIST (should boost accuracy)
-> - [ ] **Residual blocks (mini-ResNet vibes)** (start with `x + f(x)`, then maybe BN later)
->
-> *Last noted: 2026-01-03.*
-{: .notice--warning }
-
 We will implement backpropagation from scratch and run it for the MNIST data set.
 
 ## Backpropagation from Scratch
